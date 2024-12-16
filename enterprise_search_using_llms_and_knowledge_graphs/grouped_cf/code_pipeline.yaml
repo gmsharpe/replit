@@ -1,0 +1,1144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Codepipeline for Multi Modal Enterprise Search App
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: 'Environment Configuration'
+        Parameters:
+          - EnvironmentName
+          - S3DataPrefixKB
+      - Label:
+          default: 'Container Configuration'
+        Parameters:
+          - Cpu
+          - Memory
+          - ContainerPort
+      - Label:
+          default: 'Autoscaling'
+        Parameters:
+          - DesiredTaskCount
+          - MinContainers
+          - MaxContainers
+          - AutoScalingTargetValue
+      - Label:
+          default: 'Cognito Configuration'
+        Parameters:
+          - CognitoUserPoolId
+          - CognitoAppClientId
+
+Parameters:
+  ContainerPort:
+    Description: Port for Docker host and container
+    Type: Number
+    Default: 80
+
+  Cpu:
+    Description: "CPU of Fargate Task. Make sure you put valid Memory and CPU pair, refer: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html#cfn-ecs-taskdefinition-cpu:~:text=requires%3A%20Replacement-,Cpu,-The%20number%20of"
+    Type: Number
+    Default: 512
+    AllowedValues:
+      - 256
+      - 512
+      - 1024
+      - 2048
+      - 4096
+
+  Memory:
+    Description: "Memory of Fargate Task.  Make sure you put valid Memory and CPU pair, refer: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html#cfn-ecs-taskdefinition-cpu:~:text=requires%3A%20Replacement-,Cpu,-The%20number%20of"
+    Type: Number
+    Default: 1024
+    AllowedValues:
+      - 512
+      - 1024
+      - 2048
+      - 3072
+      - 4096
+      - 5120
+      - 6144
+      - 7168
+      - 8192
+      - 16384
+      - 30720
+
+  EnvironmentName:
+    Description: Unique name to distinguish different web application in the same AWS account (min length 1 and max length 4)
+    Type: String
+    MinLength: 1
+    MaxLength: 4
+    Default: dev
+
+  DesiredTaskCount:
+    Description: Desired Docker task count
+    Type: Number
+    Default: 1
+
+  MinContainers:
+    Description: Minimum containers for Autoscaling. Should be less than or equal to DesiredTaskCount
+    Type: Number
+    Default: 1
+
+  MaxContainers:
+    Description: Maximum containers for Autoscaling. Should be greater than or equal to DesiredTaskCount
+    Type: Number
+    Default: 3
+
+  AutoScalingTargetValue:
+    Description: CPU Utilization Target
+    Type: Number
+    Default: 80
+
+  S3DataPrefixKB:
+    Default: knowledge_base
+    Type: String
+    Description: S3 object prefix where the knowledge base source documents should be stored
+
+  CognitoUserPoolId:
+    Description: 'Cognito User Pool Id.Must be a valid Cognito User Pool ID. For example: us-east-1_abcdefgh'
+    Type: String
+    AllowedPattern: '^[\w-]+_[0-9a-zA-Z]+$'
+    ConstraintDescription: 'Must be a valid Cognito User Pool ID. For example: us-east-1_abcdefgh'
+    MinLength: 1
+    MaxLength: 55
+
+  CognitoAppClientId:
+    Description: 'Cognito Application Client Id.Must be valid consisting of lowercase letters and numbers'
+    Type: String
+    AllowedPattern: '^[0-9a-z]{26}$'
+    ConstraintDescription: 'Must be a valid Cognito App Client ID consisting of lowercase letters and numbers'
+    MinLength: 1
+    MaxLength: 128
+
+Resources:
+######### duplicated resources
+
+  MultiModalCodeS3Bucket:
+    Type: AWS::S3::Bucket
+    # DeletionPolicy: Retain
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Artifact Bucket
+  MultiModalArtifactStore:
+    Type: AWS::S3::Bucket
+    Properties:
+      LoggingConfiguration:
+        DestinationBucketName: !GetAtt Infrastructure.Outputs.LoggingBucket
+        LogFilePrefix: !Sub artifact-${EnvironmentName}-logs
+
+  MultiModalArtifactStorePolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MultiModalArtifactStore
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Sid: DenyUnEncryptedObjectUploads
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Join [ '', [ !GetAtt MultiModalArtifactStore.Arn, '/*' ] ]
+            Condition:
+              StringNotEquals:
+                s3:x-amz-server-side-encryption: aws:kms
+          -
+            Sid: DenyInsecureConnections
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !Sub arn:aws:s3:::${MultiModalArtifactStore}/*
+              - !Sub arn:aws:s3:::${MultiModalArtifactStore}
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  S3DataBucketName:
+    Type: AWS::S3::Bucket
+    # DeletionPolicy: Retain
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+
+  # Container Repository
+  MultiModalAppImageRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      EmptyOnDelete: true
+
+##### end duplicated resources
+
+  #  #########################
+  #  ##### CodePipeline #####
+  #  #######################
+  #
+  # CodePipeline Roles
+  MultiModalAppCodeBuildExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'codebuild.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !GetAtt Infrastructure.Outputs.LogsPolicy
+      Policies:
+        - PolicyName: 'CodeBuildPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ecr:GetAuthorizationToken'
+                Resource:
+                  - '*'
+              - Effect: 'Allow'
+                Action:
+                  - 'ecr:UploadLayerPart'
+                  - 'ecr:PutImage'
+                  - 'ecr:InitiateLayerUpload'
+                  - 'ecr:CompleteLayerUpload'
+                  - 'ecr:BatchCheckLayerAvailability'
+                Resource:
+                  - !GetAtt MultiModalAppImageRepo.Arn
+              - Effect: 'Allow'
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::${MultiModalArtifactStore}/*"
+
+  MultiModalCloudformationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !GetAtt Infrastructure.Outputs.LogsPolicy
+      Policies:
+        - PolicyName: 'CloudFormationPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'iam:ListRolePolicies'
+                  - 'iam:ListAttachedRolePolicies'
+                  - 'iam:CreateServiceLinkedRole'
+                  - 'iam:CreateRole'
+                  - 'iam:GetRolePolicy'
+                  - 'iam:GetRole'
+                  - 'iam:AttachRolePolicy'
+                  - 'iam:PutRolePolicy'
+                  - 'iam:DetachRolePolicy'
+                  - 'iam:DeleteRole'
+                  - 'iam:DeleteRolePolicy'
+                  - 'iam:PassRole'
+                  - 'sts:AssumeRole'
+                Resource:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/MultiModalECSExecutionRole-${EnvironmentName}
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/MultiModalECSTaskRole-${EnvironmentName}
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/ECSCustomRole-${EnvironmentName}
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+              - Effect: 'Allow'
+                Action:
+                  - 's3:GetBucketAcl'
+                  - 's3:PutBucketAcl'
+                Resource:
+                  - !Sub
+                    - 'arn:aws:s3:::${LoggingBucket}'
+                    - LoggingBucket: !GetAtt Infrastructure.Outputs.LoggingBucket
+                  - !Sub
+                    - 'arn:aws:s3:::${LoggingBucket}/*'
+                    - LoggingBucket: !GetAtt Infrastructure.Outputs.LoggingBucket
+              - Effect: 'Allow'
+                Action:
+                  - 'ecs:DeregisterTaskDefinition'
+                  - 'ecs:RegisterTaskDefinition'
+                Resource:
+                  - '*'
+              - Effect: 'Allow'
+                Action:
+                  - 'ecs:DescribeClusters'
+                  - 'ecs:DescribeServices'
+                  - 'ecs:CreateService'
+                  - 'ecs:UpdateService'
+                  - 'ecs:DeleteService'
+                Resource:
+                  - !Sub
+                    - arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${MultiModalClusterName}
+                    - MultiModalClusterName: !GetAtt Infrastructure.Outputs.MultiModalCluster
+                  - !Sub
+                    - arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:service/${MultiModalClusterName}/MultiModalECSService-${EnvironmentName}
+                    - MultiModalClusterName: !GetAtt Infrastructure.Outputs.MultiModalCluster
+              - Effect: 'Allow'
+                Action:
+                  - 'lambda:GetRuntimeManagementConfig'
+                  - 'lambda:GetFunctionCodeSigningConfig'
+                  - 'lambda:GetFunction'
+                  - 'lambda:CreateFunction'
+                  - 'lambda:DeleteFunction'
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:ECSCustomF-${EnvironmentName}
+              - Effect: 'Allow'
+                Action:
+                  - 'cloudfront:ListDistributions'
+                Resource:
+                  - '*'
+              - Effect: 'Allow'
+                Action:
+                  - 'cloudfront:CreateDistribution'
+                  - 'cloudfront:GetDistribution'
+                  - 'cloudfront:DeleteDistribution'
+                  - 'cloudfront:UpdateDistribution'
+                  - 'cloudfront:TagResource'
+                Resource:
+                  - '*'
+                Condition:
+                  StringEquals:
+                    'aws:ResourceTag/CloudfrontStreamlitApp': !Sub '${AWS::StackName}-deploy-${EnvironmentName}-Cloudfront'
+              - Effect: 'Allow'
+                Action:
+                  - 'application-autoscaling:DescribeScalableTargets'
+                  - 'application-autoscaling:DescribeScalingPolicies'
+                  - 'application-autoscaling:RegisterScalableTarget'
+                  - 'application-autoscaling:DeregisterScalableTarget'
+                Resource:
+                  - !Sub arn:aws:application-autoscaling:${AWS::Region}:${AWS::AccountId}:scalable-target/*
+              - Effect: 'Allow'
+                Action:
+                  - 'application-autoscaling:PutScalingPolicy'
+                  - 'application-autoscaling:DeleteScalingPolicy'
+                Resource:
+                  - !Sub arn:aws:application-autoscaling:${AWS::Region}:${AWS::AccountId}:scalable-target/*
+              - Effect: 'Allow'
+                Action:
+                  - 'autoscaling:PutScalingPolicy'
+                  - 'autoscaling:DescribeScheduledActions'
+                Resource:
+                  - '*'
+              - Effect: 'Allow'
+                Action:
+                  - 'wafv2:CreateWebACL'
+                Resource:
+                  - '*'
+              - Effect: 'Allow'
+                Action:
+                  - 'wafv2:GetWebACL'
+                  - 'wafv2:DeleteWebACL'
+                  - 'wafv2:ListTagsForResource'
+                Resource:
+                  - !Sub arn:aws:wafv2:${AWS::Region}:${AWS::AccountId}:*/webacl/CloudFrontWebACL${EnvironmentName}/*
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:CreateSecurityGroup'
+                  - 'ec2:DescribeSecurityGroups'
+                  - 'ec2:CreateTags'
+                  - 'ec2:DescribeVpcs'
+                  - 'ec2:DescribeInternetGateways'
+                  - 'ec2:DescribeAccountAttributes'
+                  - 'ec2:DescribeSubnets'
+                Resource:
+                  - "*"
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:DeleteSecurityGroup'
+                  - 'ec2:RevokeSecurityGroupIngress'
+                  - 'ec2:RevokeSecurityGroupEgress'
+                  - 'ec2:AuthorizeSecurityGroupIngress'
+                  - 'ec2:AuthorizeSecurityGroupEgress'
+                Resource:
+                  - "*"
+                Condition:
+                  StringEquals:
+                    'aws:ResourceTag/Name': !Join ['-', ['MultiModalAppALBSecurityGroup', !Ref EnvironmentName]]
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:DeleteSecurityGroup'
+                  - 'ec2:RevokeSecurityGroupIngress'
+                  - 'ec2:RevokeSecurityGroupEgress'
+                  - 'ec2:AuthorizeSecurityGroupIngress'
+                  - 'ec2:AuthorizeSecurityGroupEgress'
+                Resource:
+                  - "*"
+                Condition:
+                  StringEquals:
+                    'aws:ResourceTag/Name': !Join ['-', ['MultiModalAppContainerSecurityGroup', !Ref EnvironmentName]]
+              - Effect: 'Allow'
+                Action:
+                  - 'elasticloadbalancing:DeleteLoadBalancer'
+                  - 'elasticloadbalancing:DeleteListener'
+                  - 'elasticloadbalancing:DeleteRule'
+                  - 'elasticloadbalancing:DeleteTargetGroup'
+                Resource:
+                  - !Sub arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/MultiModalAppContainerTG-${EnvironmentName}/*
+                  - !Sub arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:loadbalancer/app/MultiModalAppALB-${EnvironmentName}/*
+                  - !Sub arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener/app/MultiModalAppALB-${EnvironmentName}/*/*
+                  - !Sub arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener-rule/app/MultiModalAppALB-${EnvironmentName}/*/*/*
+              - Effect: 'Allow'
+                Action:
+                  - 'elasticloadbalancing:CreateLoadBalancer'
+                  - 'elasticloadbalancing:CreateListener'
+                  - 'elasticloadbalancing:CreateRule'
+                  - 'elasticloadbalancing:CreateTargetGroup'
+                  - 'elasticloadbalancing:DescribeTargetGroups'
+                  - 'elasticloadbalancing:DescribeListeners'
+                  - 'elasticloadbalancing:DescribeLoadBalancers'
+                  - 'elasticloadbalancing:DescribeRules'
+                  - 'elasticloadbalancing:ModifyLoadBalancerAttributes'
+                  - 'elasticloadbalancing:ModifyTargetGroup'
+                  - 'elasticloadbalancing:ModifyTargetGroupAttributes'
+                Resource:
+                  - "*"
+              - Effect: 'Allow'
+                Action:
+                  - 'iam:CreateServiceLinkedRole'
+                  - 'iam:AttachRolePolicy'
+                  - 'iam:PutRolePolicy'
+                  - 'sts:AssumeRole'
+                Resource:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+              - Effect: 'Allow'
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:List*"
+                Resource:
+                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}/*
+                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}
+                  - !Sub arn:aws:s3:::${MultiModalArtifactStore}/*
+                  - !Sub arn:aws:s3:::${MultiModalArtifactStore}
+              - Effect: 'Allow'
+                Action:
+                  - 'iam:UpdateAssumeRolePolicy'
+                  - 'iam:ListRoles'
+                  - 'iam:ListRolePolicies'
+                  - 'iam:ListAttachedRolePolicies'
+                  - 'iam:GetRolePolicy'
+                  - 'iam:GetRole'
+                  - 'iam:PassRole'
+                  - 'iam:CreateRole'
+                  - 'iam:AttachRolePolicy'
+                  - 'iam:PutRolePolicy'
+                  - 'iam:DeleteRolePolicy'
+                  - 'iam:DeleteRole'
+                  - 'iam:UpdateRole'
+                  - 'iam:DetachRolePolicy'
+                  - 'iam:TagRole'
+                Resource:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/*
+              - Effect: 'Allow'
+                Action:
+                  - 'iam:CreatePolicy'
+                  - 'iam:DeletePolicy'
+                  - 'iam:UpdatePolicy'
+                  - 'iam:CreatePolicyVersion'
+                  - 'iam:DeletePolicyVersion'
+                  - 'iam:GetPolicyVersion'
+                  - 'iam:ListPolicyVersions'
+                  - 'iam:GetPolicy'
+                  - 'iam:ListPolicies'
+                  - 'iam:UpdateAssumeRolePolicy'
+                Resource:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:policy/*
+              - Effect: 'Allow'
+                Action:
+                  - 'lambda:GetRuntimeManagementConfig'
+                  - 'lambda:GetFunctionCodeSigningConfig'
+                  - 'lambda:UpdateFunctionConfiguration'
+                  - 'lambda:GetFunction'
+                  - 'lambda:CreateFunction'
+                  - 'lambda:UpdateFunction'
+                  - 'lambda:UpdateFunctionCode'
+                  - 'lambda:DeleteFunction'
+                  - 'lambda:InvokeFunction'
+                  - 'lambda:TagResource'
+                  - 'lambda:ListTags'
+                Resource:
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*
+              - Effect: 'Allow'
+                Action:
+                  - 'lambda:PublishLayerVersion'
+                  - 'lambda:GetLayerVersion'
+                Resource:
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:*
+              - Effect: 'Allow'
+                Action:
+                  - 'states:CreateStateMachine'
+                  - 'states:UpdateStateMachine'
+                  - 'states:DeleteStateMachine'
+                  - 'states:TagResource'
+                  - 'states:ListTagsForResource'
+                  - 'states:DescribeStateMachine'
+                Resource:
+                  - !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:*
+              - Effect: 'Allow'
+                Action:
+                  - 'events:DescribeRule'
+                  - 'events:PutRule'
+                  - 'events:DeleteRule'
+                  - 'events:PutTargets'
+                  - 'events:RemoveTargets'
+                Resource:
+                  - !Sub arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*
+              - Effect: 'Allow'
+                Action:
+                  - 'scheduler:GetSchedule'
+                  - 'scheduler:CreateSchedule'
+                  - 'scheduler:UpdateSchedule'
+                  - 'scheduler:DeleteSchedule'
+                  - 'scheduler:GetScheduleGroup'
+                  - 'scheduler:CreateScheduleGroup'
+                  - 'scheduler:UpdateScheduleGroup'
+                  - 'scheduler:DeleteScheduleGroup'
+                  - 'scheduler:TagResource'
+                  - 'scheduler:UntagResource'
+                  - 'scheduler:Get*'
+                  - 'scheduler:List*'
+                  - 'scheduler:Describe*'
+                Resource:
+                  - !Sub arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/default/*
+              - Effect: 'Allow'
+                Action:
+                  - 'ssm:GetParameters'
+                  - 'ssm:GetParameter'
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/multimodalapp/*
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:CreateSecurityGroup'
+                  - 'ec2:DescribeSecurityGroups'
+                  - 'ec2:CreateTags'
+                  - 'ec2:DescribeVpcs'
+                  - 'ec2:DescribeInternetGateways'
+                  - 'ec2:DescribeAccountAttributes'
+                  - 'ec2:DescribeSubnets'
+                Resource:
+                  - "*"
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:DeleteSecurityGroup'
+                  - 'ec2:RevokeSecurityGroupIngress'
+                  - 'ec2:RevokeSecurityGroupEgress'
+                  - 'ec2:AuthorizeSecurityGroupIngress'
+                  - 'ec2:AuthorizeSecurityGroupEgress'
+                Resource:
+                  - "*"
+                Condition:
+                  StringEquals:
+                    'aws:ResourceTag/Name':
+                      - !Sub "IngestLambdaSecurityGroup-${EnvironmentName}"
+                      - !Sub "NeptuneDBSecurityGroup-${EnvironmentName}"
+              - Effect: 'Allow'
+                Action:
+                  - 'iam:CreateServiceLinkedRole'
+                  - 'iam:AttachRolePolicy'
+                  - 'iam:PutRolePolicy'
+                  - 'sts:AssumeRole'
+                Resource:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+              -
+                Effect: Allow
+                Action:
+                  - cloudformation:UpdateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:CreateStack
+                  - cloudformation:CreateChangeSet
+                Resource: !Sub arn:aws:cloudformation:${AWS::Region}:aws:transform/Serverless-*
+              - Effect: Allow
+                Action:
+                  - logs:DeleteLogGroup
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AWS::StackName}*
+
+  MultiModalStepFunctionCodeBuildRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'codebuild.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !GetAtt Infrastructure.Outputs.LogsPolicy
+      Policies:
+        - PolicyName: 'CodeBuildPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ecr:GetAuthorizationToken'
+                Resource:
+                  - '*'
+              - Effect: 'Allow'
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                Resource:
+                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}/*
+                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}
+                  - !Sub arn:aws:s3:::${MultiModalArtifactStore}/*
+                  - !Sub arn:aws:s3:::${MultiModalArtifactStore}
+              -
+                Effect: Allow
+                Action:
+                  - cloudformation:UpdateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:CreateStack
+                  - cloudformation:CreateChangeSet
+                Resource:
+                  - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/aws-sam-cli-managed-default/*"
+
+
+#  MultiModalCodePipelineServiceRole:
+#    Type: AWS::IAM::Role
+#    Properties:
+#      AssumeRolePolicyDocument:
+#        Version: 2012-10-17
+#        Statement:
+#          -
+#            Effect: Allow
+#            Principal:
+#              Service:
+#                - codepipeline.amazonaws.com
+#            Action: sts:AssumeRole
+#      Path: /
+#      Policies:
+#        -
+#          PolicyName: AWS-CodePipeline-Service-3
+#          PolicyDocument:
+#            Version: 2012-10-17
+#            Statement:
+#              -
+#                Effect: Allow
+#                Action:
+#                  - codebuild:BatchGetBuilds
+#                  - codebuild:StartBuild
+#                Resource:
+#                  - !GetAtt MultiModalAppCodeBuild.Arn
+#                  - !GetAtt MultiModalStepFunctionCodeBuild.Arn
+#              -
+#                Effect: Allow
+#                Action:
+#                  - lambda:InvokeFunction
+#                  - lambda:ListFunctions
+#                Resource: !GetAtt InvalidateCacheFunction.Arn
+#              -
+#                Effect: Allow
+#                Action:
+#                  - iam:PassRole
+#                Resource: !GetAtt MultiModalCloudformationExecutionRole.Arn
+#              -
+#                Effect: Allow
+#                Action:
+#                  - cloudformation:UpdateStack
+#                  - cloudformation:DescribeStacks
+#                  - cloudformation:CreateStack
+#                  - cloudformation:CreateChangeSet
+#                Resource: !Sub
+#                  - |-
+#                    arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${StackName}/*
+#                  - {
+#                    StackName: !Sub "${AWS::StackName}-deploy-${EnvironmentName}"
+#                  }
+#              -
+#                Effect: Allow
+#                Action:
+#                  - cloudformation:UpdateStack
+#                  - cloudformation:DescribeStacks
+#                  - cloudformation:CreateStack
+#                  - cloudformation:CreateChangeSet
+#                Resource: !Sub
+#                  - |-
+#                    arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/*
+#                  - {
+#                    StackName: !Sub "${AWS::StackName}-data-ingestion-deploy-${EnvironmentName}"
+#                  }
+#              -
+#                Effect: Allow
+#                Action:
+#                  - s3:Get*
+#                  - s3:List*
+#                  - s3:Put*
+#                Resource:
+#                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}/*
+#                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}
+#                  - !Sub arn:aws:s3:::${MultiModalArtifactStore}/*
+#                  - !Sub arn:aws:s3:::${MultiModalArtifactStore}
+
+  MultiModalCodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: AWS-CodePipeline-Service-3
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource:
+                  - !GetAtt MultiModalAppCodeBuild.Arn
+                  - !GetAtt MultiModalStepFunctionCodeBuild.Arn
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:ListFunctions
+                Resource: !GetAtt InvalidateCacheFunction.Arn
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !GetAtt MultiModalCloudformationExecutionRole.Arn
+              - Effect: Allow
+                Action:
+                  - cloudformation:UpdateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:CreateStack
+                  - cloudformation:CreateChangeSet
+                Resource: !Join
+                  - ""
+                  - - "arn:aws:cloudformation:"
+                    - !Ref AWS::Region
+                    - ":"
+                    - !Ref AWS::AccountId
+                    - ":stack/"
+                    - !Ref AWS::StackName
+                    - "-deploy-"
+                    - !Ref EnvironmentName
+                    - "/*"
+              - Effect: Allow
+                Action:
+                  - cloudformation:UpdateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:CreateStack
+                  - cloudformation:CreateChangeSet
+                Resource: !Join
+                  - ""
+                  - - "arn:aws:cloudformation:"
+                    - !Ref AWS::Region
+                    - ":"
+                    - !Ref AWS::AccountId
+                    - ":stack/"
+                    - !Ref AWS::StackName
+                    - "-data-ingestion-deploy-"
+                    - !Ref EnvironmentName
+                    - "/*"
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:List*
+                  - s3:Put*
+                Resource:
+                  - !Join [ "", [ "arn:aws:s3:::", !Ref MultiModalCodeS3Bucket, "/*" ] ]
+                  - !Join [ "", [ "arn:aws:s3:::", !Ref MultiModalCodeS3Bucket ] ]
+                  - !Join [ "", [ "arn:aws:s3:::", !Ref MultiModalArtifactStore, "/*" ] ]
+                  - !Join [ "", [ "arn:aws:s3:::", !Ref MultiModalArtifactStore ] ]
+
+###############
+
+  # CodeBuild for building data ingestion orchestrator using Step function in CodePipeline
+  MultiModalStepFunctionCodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join ['-', ['MultiModalStepFunctionCodeBuild', !Ref EnvironmentName]]
+      Description: CodeBuild for Code Pipeline
+      Cache:
+        Location: LOCAL
+        Modes:
+          - LOCAL_SOURCE_CACHE
+          - LOCAL_DOCKER_LAYER_CACHE
+        Type: LOCAL
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec:
+          !Sub
+          - |
+            version: 0.2
+            phases:
+              install:
+                runtime-versions:
+                  python: 3.12
+                commands:
+                  - pip3 install aws-sam-cli
+              pre_build:
+                commands:
+                  - sam --version
+                  - cd src/sam_deploy
+              build:
+                commands:
+                  - sam build --template-file template.yaml
+                  - sam package --template-file template.yaml --s3-bucket ${MultiModalCodeS3Bucket} --output-template-file packaged.yaml
+                  - ls -al
+            artifacts:
+              type: zip
+              files:
+                - src/sam_deploy/packaged.yaml
+          - {
+            MultiModalCodeS3Bucket: !Ref MultiModalCodeS3Bucket
+          }
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+      ServiceRole: !GetAtt MultiModalStepFunctionCodeBuildRole.Arn
+      TimeoutInMinutes: 10
+
+  # CodeBuild to build the ECS Streamlit app for CodePipeline
+  MultiModalAppCodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join ['-', ['MultiModalCodeAppBuild', !Ref EnvironmentName]]
+      Description: CodeBuild for Code Pipeline
+      Cache:
+        Location: LOCAL
+        Modes:
+          - LOCAL_SOURCE_CACHE
+          - LOCAL_DOCKER_LAYER_CACHE
+        Type: LOCAL
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec:
+          !Sub
+          - |
+            version: 0.2
+            phases:
+              pre_build:
+                commands:
+                  - pip3 install awscli
+                  - aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+                  - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+                  - COMMIT_HASH=${!COMMIT_HASH//./a}
+                  - IMAGE_TAG=${!COMMIT_HASH:=latest}
+              build:
+                commands:
+                  - echo Build started on `date`
+                  - echo $PWD
+                  - ls -al
+                  - cd src/webapp/
+                  - printf '\n' >> Dockerfile
+                  - printf 'ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=${ContainerPort}", "--", "--environmentName", "${EnvironmentName}", "--codeS3Bucket", "${MultiModalCodeS3Bucket}"]' >> Dockerfile
+                  - cat Dockerfile
+                  - docker build -t ${MultiModalAppImageRepo} .
+                  - docker tag ${MultiModalAppImageRepo}:latest ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MultiModalAppImageRepo}:$IMAGE_TAG
+              post_build:
+                commands:
+                  - echo Build completed on `date`
+                  - docker push ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MultiModalAppImageRepo}:$IMAGE_TAG
+                  - cd ../../
+                  - echo $PWD
+                  - printf  '{"MultiModalAppImageURI":"%s"}' ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MultiModalAppImageRepo}:$IMAGE_TAG > imageDetail.json
+            artifacts:
+              files:
+                - imageDetail.json
+          - {
+            MultiModalAppImageRepo: !Ref MultiModalAppImageRepo
+          }
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+      ServiceRole: !GetAtt MultiModalAppCodeBuildExecutionRole.Arn
+      TimeoutInMinutes: 10
+
+  # Invalidate cache
+  InvalidateCacheFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: "/"
+      ManagedPolicyArns:
+        - !GetAtt Infrastructure.Outputs.LogsPolicy
+      Policies:
+        - PolicyName: LambdaCustomPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobFailureResult
+                  - codepipeline:PutJobSuccessResult
+                  - cloudfront:CreateInvalidation
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectAcl
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${MultiModalArtifactStore}/*"
+
+  InvalidateCacheFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt InvalidateCacheFunctionRole.Arn
+      Timeout: 300
+      Runtime: python3.12
+      Code:
+        ZipFile: !Sub |
+          import json
+          import boto3
+          import zipfile
+          import os
+          
+          code_pipeline = boto3.client("codepipeline")
+          cloud_front = boto3.client("cloudfront")
+          s3 = boto3.client('s3')
+          
+          def get_input_artifacts(inputArtifacts):
+            bucketName = inputArtifacts["location"]["s3Location"]["bucketName"]
+            objectKey = inputArtifacts["location"]["s3Location"]["objectKey"]
+          
+            s3.download_file(bucketName, objectKey, "/tmp/file.zip")
+          
+            with zipfile.ZipFile("/tmp/file.zip", 'r') as zip_ref:
+                zip_ref.extractall("/tmp/extracted")
+          
+            json_file_path = os.path.join("/tmp/extracted", 'CreateStackOutput.json')
+            with open(json_file_path, 'r') as json_file:
+                json_data = json.loads(json_file.read())
+                # You can now use json_data as needed
+            return json_data["CloudfrontID"]
+          
+          
+          def handler(event, context):
+              job_id = event["CodePipeline.job"]["id"]
+              try:
+                  CloudfrontID = get_input_artifacts(event["CodePipeline.job"]["data"]["inputArtifacts"][0])
+          
+                  cloud_front.create_invalidation(
+                      DistributionId=CloudfrontID,
+                      InvalidationBatch={
+                          "Paths": {
+                              "Quantity": 1,
+                              "Items": ["/*"],
+                          },
+                          "CallerReference": event["CodePipeline.job"]["id"],
+                      },
+                  )
+              except Exception as e:
+                  code_pipeline.put_job_failure_result(
+                      jobId=job_id,
+                      failureDetails={
+                          "type": "JobFailed",
+                          "message": str(e),
+                      },
+                  )
+              else:
+                  code_pipeline.put_job_success_result(
+                      jobId=job_id,
+                  )
+
+  # CodePipeline with Infra
+  MultiModalCodePipeLineInfra:
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+      - NeptuneStack
+    Properties:
+      Name: !Join ['-', ['MultiModalCodePipeLine', !Ref EnvironmentName]]
+      ArtifactStore:
+        Location: !Ref MultiModalArtifactStore
+        Type: S3
+      RestartExecutionOnUpdate: False
+      RoleArn: !GetAtt MultiModalCodePipelineServiceRole.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: 1
+              Configuration:
+                S3Bucket: !Ref MultiModalCodeS3Bucket
+                S3ObjectKey: app.zip
+                PollForSourceChanges: false
+              RunOrder: 1
+              OutputArtifacts:
+                - Name: source-output-artifacts
+        # Build the project using the BuildProject and Output build artifacts to build-app-output-artifacts path in S3 Bucket
+        - Name: BuildApp
+          Actions:
+            - Name: BuildApp
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              OutputArtifacts:
+                - Name: build-app-output-artifacts
+              InputArtifacts:
+                - Name: source-output-artifacts
+              Configuration:
+                ProjectName: !Ref MultiModalAppCodeBuild
+              RunOrder: 1
+
+            # Build the project using the BuildProject and Output build artifacts to build-ingest-output-artifacts path in S3 Bucket
+            - Name: BuildIngestion
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              OutputArtifacts:
+                - Name: build-ingest-output-artifacts
+              InputArtifacts:
+                - Name: source-output-artifacts
+              Configuration:
+                ProjectName: !Ref MultiModalStepFunctionCodeBuild
+              RunOrder: 1
+        # Deploy the project by executing Fargate-Cluster.yml file in the Source code with Cloudformation.
+        - Name: AppInfrastructureDeploy
+          Actions:
+            - Name: DeployApp
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              InputArtifacts:
+                - Name: source-output-artifacts
+                - Name: build-app-output-artifacts
+              OutputArtifacts:
+                - Name: cfn-app-output-artifacts
+              Configuration:
+                OutputFileName: CreateStackOutput.json
+                ActionMode: CREATE_UPDATE
+                Capabilities: CAPABILITY_NAMED_IAM
+                ParameterOverrides: !Sub
+                  - |
+                    {"MultiModalAppImageURI" : { "Fn::GetParam" : ["build-app-output-artifacts", "imageDetail.json", "MultiModalAppImageURI"] },
+                    "S3DataBucketName": "${S3DataBucketName}", "MultiModalCluster": "${Cluster}","MultiModalCodeS3Bucket": "${MultiModalCodeS3Bucket}",
+                    "ContainerPort": "${ContainerPort}", "Cpu": "${Cpu}", "Memory":"${Memory}",
+                    "Task":"${DesiredTaskCount}","Min":"${MinContainers}","Max":"${MaxContainers}","Tv":"${AutoScalingTargetValue}",
+                    "StreamlitLogsPolicyArn": "${StreamlitLogsPolicyArn}","StreamlitPublicSubnetA": "${PubSubnetA}","StreamlitPublicSubnetB": "${PubSubnetB}",
+                    "StreamlitPrivateSubnetA": "${PvtSubnetA}","StreamlitPrivateSubnetB": "${PvtSubnetB}","LoggingBucketName": "${LoggingBucketName}",
+                    "MultiModalVPC": "${VPC}", "EnvironmentName": "${EnvironmentName}", "CognitoUserPoolId": "${CognitoUserPoolId}", "CognitoAppClientId": "${CognitoAppClientId}"
+                    }
+                  - {
+                    EnvironmentName: !Ref EnvironmentName,
+                    MultiModalCodeS3Bucket: !Ref MultiModalCodeS3Bucket,
+                    S3DataBucketName : !Ref S3DataBucketName,
+                    ContainerPort: !Ref ContainerPort,
+                    Cluster: !GetAtt Infrastructure.Outputs.MultiModalCluster,
+                    StreamlitLogsPolicyArn: !GetAtt Infrastructure.Outputs.LogsPolicy,
+                    PubSubnetA: !GetAtt Infrastructure.Outputs.PublicSubnetA,
+                    PubSubnetB: !GetAtt Infrastructure.Outputs.PublicSubnetB,
+                    PvtSubnetA: !GetAtt Infrastructure.Outputs.PrivateSubnetA,
+                    PvtSubnetB: !GetAtt Infrastructure.Outputs.PrivateSubnetB,
+                    LoggingBucketName: !GetAtt Infrastructure.Outputs.LoggingBucket,
+                    VPC: !GetAtt Infrastructure.Outputs.VPC,
+                    CognitoUserPoolId: !Ref CognitoUserPoolId,
+                    CognitoAppClientId: !Ref CognitoAppClientId
+                  }
+                RoleArn:
+                  !GetAtt MultiModalCloudformationExecutionRole.Arn
+                StackName: !Sub "${AWS::StackName}-deploy-${EnvironmentName}"
+                TemplatePath: source-output-artifacts::cloudformation/deploy.yaml
+              RunOrder: 1
+            # Deploy the project by executing deploy.yaml file in the Source code with Cloudformation.
+            - Name: DeployIngest
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              InputArtifacts:
+                - Name: source-output-artifacts
+                - Name: build-ingest-output-artifacts
+              OutputArtifacts:
+                - Name: cfn-ingest-output-artifacts
+              Configuration:
+                OutputFileName: CreateIngestStackOutput.json
+                ActionMode: CREATE_UPDATE
+                Capabilities: CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                ParameterOverrides: !Sub
+                  - |
+                    {
+                    "EnvironmentName": "${EnvironmentName}",
+                    "S3DataBucketName": "${S3DataBucketName}",
+                    "S3DataPrefixKB": "${S3DataPrefixKB}",
+                    "VPC":"${VPC}",
+                    "PrivateSubnetA": "${PrivateSubnetA}",
+                    "PrivateSubnetB": "${PrivateSubnetB}"
+                    }
+                  - {
+                    PrivateSubnetA: !GetAtt Infrastructure.Outputs.PrivateSubnetA,
+                    PrivateSubnetB: !GetAtt Infrastructure.Outputs.PrivateSubnetB,
+                    VPC: !GetAtt Infrastructure.Outputs.VPC,
+                  }
+                RoleArn:
+                  !GetAtt MultiModalCloudformationExecutionRole.Arn
+                StackName: !Sub "${AWS::StackName}-data-ingestion-deploy-${EnvironmentName}"
+                TemplatePath: build-ingest-output-artifacts::src/sam_deploy/packaged.yaml
+              RunOrder: 1
+        - Name: InvalidateCache
+          Actions:
+            - Name: Invalidate
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Version: 1
+                Provider: Lambda
+              InputArtifacts:
+                - Name: cfn-app-output-artifacts
+              Configuration:
+                FunctionName: !Ref InvalidateCacheFunction
+              RunOrder: 1

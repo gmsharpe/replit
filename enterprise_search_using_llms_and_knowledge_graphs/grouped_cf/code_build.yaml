@@ -1,0 +1,582 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Codepipeline for Multi Modal Enterprise Search App
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: 'Environment Configuration'
+        Parameters:
+          - EnvironmentName
+          - S3DataPrefixKB
+      - Label:
+          default: 'Container Configuration'
+        Parameters:
+          - Cpu
+          - Memory
+          - ContainerPort
+      - Label:
+          default: 'Autoscaling'
+        Parameters:
+          - DesiredTaskCount
+          - MinContainers
+          - MaxContainers
+          - AutoScalingTargetValue
+      - Label:
+          default: 'Cognito Configuration'
+        Parameters:
+          - CognitoUserPoolId
+          - CognitoAppClientId
+
+Parameters:
+  ContainerPort:
+    Description: Port for Docker host and container
+    Type: Number
+    Default: 80
+
+  Cpu:
+    Description: "CPU of Fargate Task. Make sure you put valid Memory and CPU pair, refer: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html#cfn-ecs-taskdefinition-cpu:~:text=requires%3A%20Replacement-,Cpu,-The%20number%20of"
+    Type: Number
+    Default: 512
+    AllowedValues:
+      - 256
+      - 512
+      - 1024
+      - 2048
+      - 4096
+
+  Memory:
+    Description: "Memory of Fargate Task.  Make sure you put valid Memory and CPU pair, refer: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html#cfn-ecs-taskdefinition-cpu:~:text=requires%3A%20Replacement-,Cpu,-The%20number%20of"
+    Type: Number
+    Default: 1024
+    AllowedValues:
+      - 512
+      - 1024
+      - 2048
+      - 3072
+      - 4096
+      - 5120
+      - 6144
+      - 7168
+      - 8192
+      - 16384
+      - 30720
+
+  EnvironmentName:
+    Description: Unique name to distinguish different web application in the same AWS account (min length 1 and max length 4)
+    Type: String
+    MinLength: 1
+    MaxLength: 4
+    Default: dev
+
+  DesiredTaskCount:
+    Description: Desired Docker task count
+    Type: Number
+    Default: 1
+
+  MinContainers:
+    Description: Minimum containers for Autoscaling. Should be less than or equal to DesiredTaskCount
+    Type: Number
+    Default: 1
+
+  MaxContainers:
+    Description: Maximum containers for Autoscaling. Should be greater than or equal to DesiredTaskCount
+    Type: Number
+    Default: 3
+
+  AutoScalingTargetValue:
+    Description: CPU Utilization Target
+    Type: Number
+    Default: 80
+
+  S3DataPrefixKB:
+    Default: knowledge_base
+    Type: String
+    Description: S3 object prefix where the knowledge base source documents should be stored
+
+  CognitoUserPoolId:
+    Description: 'Cognito User Pool Id.Must be a valid Cognito User Pool ID. For example: us-east-1_abcdefgh'
+    Type: String
+    AllowedPattern: '^[\w-]+_[0-9a-zA-Z]+$'
+    ConstraintDescription: 'Must be a valid Cognito User Pool ID. For example: us-east-1_abcdefgh'
+    MinLength: 1
+    MaxLength: 55
+
+  CognitoAppClientId:
+    Description: 'Cognito Application Client Id.Must be valid consisting of lowercase letters and numbers'
+    Type: String
+    AllowedPattern: '^[0-9a-z]{26}$'
+    ConstraintDescription: 'Must be a valid Cognito App Client ID consisting of lowercase letters and numbers'
+    MinLength: 1
+    MaxLength: 128
+
+Resources:
+
+
+  ######### duplicated resources
+
+  # CloudTrail Bucket
+  MultiModalCloudTrailBucket:
+    Type: AWS::S3::Bucket
+    # DeletionPolicy: Retain
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  MultiModalCodeS3Bucket:
+    Type: AWS::S3::Bucket
+    # DeletionPolicy: Retain
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Artifact Bucket
+  MultiModalArtifactStore:
+    Type: AWS::S3::Bucket
+    Properties:
+      LoggingConfiguration:
+        DestinationBucketName: !GetAtt Infrastructure.Outputs.LoggingBucket
+        LogFilePrefix: !Sub artifact-${EnvironmentName}-logs
+
+  MultiModalArtifactStorePolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MultiModalArtifactStore
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: DenyUnEncryptedObjectUploads
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Join [ '', [ !GetAtt MultiModalArtifactStore.Arn, '/*' ] ]
+            Condition:
+              StringNotEquals:
+                s3:x-amz-server-side-encryption: aws:kms
+          - Sid: DenyInsecureConnections
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !Sub arn:aws:s3:::${MultiModalArtifactStore}/*
+              - !Sub arn:aws:s3:::${MultiModalArtifactStore}
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  S3DataBucketName:
+    Type: AWS::S3::Bucket
+    # DeletionPolicy: Retain
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+
+  # Container Repository
+  MultiModalAppImageRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      EmptyOnDelete: true
+
+  ##### end duplicated resources
+
+  # CodeBucket
+#    MultiModalCodeS3Bucket:
+#      Type: AWS::S3::Bucket
+#      # DeletionPolicy: Retain
+#      Properties:
+#        VersioningConfiguration:
+#          Status: Enabled
+#        PublicAccessBlockConfiguration:
+#          BlockPublicAcls: true
+#          BlockPublicPolicy: true
+#          IgnorePublicAcls: true
+#          RestrictPublicBuckets: true
+#
+#    MultiModalCodeS3BucketPolicy:
+#      Type: 'AWS::S3::BucketPolicy'
+#      Properties:
+#        Bucket: !Ref MultiModalCodeS3Bucket
+#        PolicyDocument:
+#          Version: '2012-10-17'
+#          Statement:
+#            - Action:
+#                - 's3:*'
+#              Effect: Deny
+#              Resource:
+#                - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}/*
+#                - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}
+#              Principal: "*"
+#              Condition:
+#                Bool:
+#                  'aws:SecureTransport': 'false'
+
+  MultiModalBuildRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'codebuild.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeBuildAdminAccess
+      Policies:
+        - PolicyName: 'S3PutObject'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                Resource:
+                  - !Sub "arn:aws:s3:::${MultiModalCodeS3Bucket}/*"
+              - Effect: 'Allow'
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - 'logs:PutRetentionPolicy'
+                Resource: '*'
+
+  MultiModalInitCodebuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "MultiModalInitCodebuild-${EnvironmentName}"
+      TimeoutInMinutes: 10
+      Source:
+        Type: NO_SOURCE
+        InsecureSsl: false
+        BuildSpec:
+          !Sub
+          - |
+            version: 0.2
+            phases:
+              pre_build:
+                commands:
+                  - pip3 install awscli --upgrade --user
+              build:
+                commands:
+                  - echo Build started on `date`
+                  - wget https://aws-blogs-artifacts-public.s3.amazonaws.com/ML-16564/enterprise_search.zip
+                  - unzip enterprise_search.zip
+                  - ls -al
+                  - aws s3 cp . s3://${MultiModalCodeS3Bucket}/ --recursive --exclude enterprise_search.zip
+              post_build:
+                commands:
+                  - echo Build completed on `date`
+                  - aws s3 cp enterprise_search.zip s3://${MultiModalCodeS3Bucket}/app.zip
+          - {
+            MultiModalCodeS3Bucket: !Ref MultiModalCodeS3Bucket
+          }
+      # SourceVersion: branch
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+      ServiceRole: !GetAtt MultiModalBuildRole.Arn
+      Artifacts:
+        Type: NO_ARTIFACTS
+
+  # Start initial codebuild
+  MultiModalBuildCustomResourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "MultiModalInitCodebuild-ResourceRole-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: "/"
+      Policies:
+        - PolicyName: LambdaCustomPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource:
+                  - !GetAtt MultiModalInitCodebuild.Arn
+              - Effect: 'Allow'
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - 'logs:PutRetentionPolicy'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:ListBucketVersions
+                Resource:
+                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}/*
+                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}
+
+  MultiModalBuildCustomResourceFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: !Sub "MultiModalInitCodebuild-Function-${EnvironmentName}"
+      Handler: index.handler
+      Role: !GetAtt MultiModalBuildCustomResourceRole.Arn
+      Timeout: 300
+      Runtime: python3.12
+      Code:
+        ZipFile: !Sub |
+          import boto3
+          from time import sleep
+          import cfnresponse
+          
+          codebuild = boto3.client("codebuild")
+          
+          def handler(event, context):
+            try:
+              request_type = event['RequestType']
+              print("request_type",request_type)
+              if request_type == 'Create':
+                status = 'STARTING'
+                print("status",event)
+                build_id = codebuild.start_build(projectName=event['ResourceProperties']['PROJECT'])['build']['id']
+                while status not in ['SUCCEEDED', 'FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT']:
+                  status = codebuild.batch_get_builds(ids=[build_id])['builds'][0]['buildStatus']
+                  sleep(15)
+                if status in ['FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT']:
+                  print("Initial CodeBuild failed")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
+                  return
+              elif request_type == 'Delete':
+                bucket = boto3.resource("s3").Bucket(event['ResourceProperties']['CODEBUCKET'])
+                bucket.object_versions.delete()
+                bucket.objects.all().delete()
+            except Exception as ex:
+              print(ex)
+              bucket = boto3.resource("s3").Bucket(event['ResourceProperties']['CODEBUCKET'])
+              bucket.object_versions.delete()
+              bucket.objects.all().delete()
+              cfnresponse.send(event, context, cfnresponse.FAILED, {})
+            else:
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+  MultiModalBuildCustomResource:
+    Type: Custom::BuildCode
+    Properties:
+      ServiceToken: !GetAtt MultiModalBuildCustomResourceFunction.Arn
+      PROJECT: !Ref MultiModalInitCodebuild
+      CODEBUCKET: !Ref MultiModalCodeS3Bucket
+
+  # Start Cleanup
+  MultiModalCleanCustomResourceRole:
+    DeletionPolicy: Delete
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: "/"
+      ManagedPolicyArns:
+        - !GetAtt Infrastructure.Outputs.LogsPolicy
+      Policies:
+        - PolicyName: LambdaCustomPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:ListBucketVersions
+                Resource:
+                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}/*
+                  - !Sub arn:aws:s3:::${MultiModalCodeS3Bucket}
+                  - !Sub arn:aws:s3:::${MultiModalArtifactStore}/*
+                  - !Sub arn:aws:s3:::${MultiModalArtifactStore}
+                  - !Sub arn:aws:s3:::${MultiModalCloudTrailBucket}/*
+                  - !Sub arn:aws:s3:::${MultiModalCloudTrailBucket}
+                  - !Sub arn:aws:s3:::${S3DataBucketName}/*
+                  - !Sub arn:aws:s3:::${S3DataBucketName}
+              - Effect: Allow
+                Action:
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ListStackResources
+                Resource:
+                  - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-deploy-${EnvironmentName}/*"
+                  - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-data-ingestion-deploy-${EnvironmentName}/*"
+
+  #  MultiModalCleanCustomResourceFunction:
+  #    Type: "AWS::Lambda::Function"
+  #    Properties:
+  #      Handler: index.handler
+  #      Role: !GetAtt MultiModalCleanCustomResourceRole.Arn
+  #      Timeout: 300
+  #      Runtime: python3.12
+  #      Code:
+  #        ZipFile: !Sub
+  #          - |
+  #            import boto3
+  #            from time import sleep
+  #            import cfnresponse
+  #            from botocore.exceptions import ClientError, WaiterError
+  #
+  #            cfn = boto3.client("cloudformation")
+  #
+  #            def handler(event, context):
+  #              try:
+  #                request_type = event['RequestType']
+  #                if request_type == 'Delete':
+  #                  bucket = boto3.resource("s3").Bucket(event['ResourceProperties']['CODEBUCKET'])
+  #                  bucket.object_versions.delete()
+  #                  bucket.objects.all().delete()
+  #
+  #                  bucket = boto3.resource("s3").Bucket(event['ResourceProperties']['ARTIFACTBUCKET'])
+  #                  bucket.object_versions.delete()
+  #                  bucket.objects.all().delete()
+  #
+  #                  bucket = boto3.resource("s3").Bucket(event['ResourceProperties']['TRAILBUCKET'])
+  #                  bucket.object_versions.delete()
+  #                  bucket.objects.all().delete()
+  #
+  #                  bucket = boto3.resource("s3").Bucket(event['ResourceProperties']['DATABUCKET'])
+  #                  bucket.object_versions.delete()
+  #                  bucket.objects.all().delete()
+  #
+  #                  deploy_stack_name="${DeployStackName}"
+  #                  ingest_stack_name="${DeployIngestionStackName}"
+  #                  try:
+  #                    data = cfn.delete_stack(StackName=ingest_stack_name)
+  #                    print(f"Waiting for stack {ingest_stack_name} to be deleted...")
+  #                    waiter = cfn.get_waiter('stack_delete_complete')
+  #                    try:
+  #                        waiter.wait(StackName=ingest_stack_name)
+  #                        print(f"Stack {ingest_stack_name} has been successfully deleted.")
+  #                    except WaiterError as e:
+  #                        print(f"Error waiting for stack {ingest_stack_name} deletion: {str(e)}")
+  #                    data = cfn.delete_stack(StackName=deploy_stack_name)
+  #                    print(f"Waiting for stack {deploy_stack_name} to be deleted...")
+  #                    waiter = cfn.get_waiter('stack_delete_complete')
+  #                    try:
+  #                        waiter.wait(StackName=deploy_stack_name)
+  #                        print(f"Stack {deploy_stack_name} has been successfully deleted.")
+  #                    except WaiterError as e:
+  #                        print(f"Error waiting for stack {deploy_stack_name} deletion: {str(e)}")
+  #                        cfnresponse.send(event, context, cfnresponse.FAILED, {})
+  #
+  #                  except ClientError as e:
+  #                      if e.response['Error']['Code'] == 'ValidationError' and 'does not exist' in e.response['Error']['Message']:
+  #                          print(f"Stack doesn't exist. No action taken.")
+  #                          cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+  #                      else:
+  #                          print(f"Error deleting stack {deploy_stack_name} deletion: {str(e)}")
+  #                          cfnresponse.send(event, context, cfnresponse.FAILED, {})
+  #              except Exception as ex:
+  #                print(ex)
+  #                cfnresponse.send(event, context, cfnresponse.FAILED, {})
+  #              else:
+  #                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+  #          - {
+  #            DeployStackName: !Sub "${AWS::StackName}-deploy-${EnvironmentName}",
+  #            DeployIngestionStackName: !Sub "${AWS::StackName}-data-ingestion-deploy-${EnvironmentName}"
+  #          }
+
+
+
+  MultiModalCleanCustomResourceFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt MultiModalCleanCustomResourceRole.Arn
+      Timeout: 300
+      Runtime: python3.12
+      Code:
+        ZipFile: !Sub |
+          import boto3
+          from time import sleep
+          import cfnresponse
+          from botocore.exceptions import ClientError, WaiterError
+          
+          cfn = boto3.client("cloudformation")
+          
+          def handler(event, context):
+              try:
+                  request_type = event['RequestType']
+                  if request_type == 'Delete':
+                      buckets = [
+                          event['ResourceProperties']['CODEBUCKET'],
+                          event['ResourceProperties']['ARTIFACTBUCKET'],
+                          event['ResourceProperties']['TRAILBUCKET'],
+                          event['ResourceProperties']['DATABUCKET']
+                      ]
+          
+                      for bucket_name in buckets:
+                          bucket = boto3.resource("s3").Bucket(bucket_name)
+                          bucket.object_versions.delete()
+                          bucket.objects.all().delete()
+          
+                      deploy_stack_name = "${AWS::StackName}-deploy-${EnvironmentName}"
+                      ingest_stack_name = "${AWS::StackName}-data-ingestion-deploy-${EnvironmentName}"
+          
+                      for stack_name in [ingest_stack_name, deploy_stack_name]:
+                          try:
+                              cfn.delete_stack(StackName=stack_name)
+                              print(f"Waiting for stack {stack_name} to be deleted...")
+                              waiter = cfn.get_waiter('stack_delete_complete')
+                              waiter.wait(StackName=stack_name)
+                              print(f"Stack {stack_name} successfully deleted.")
+                          except WaiterError as e:
+                              print(f"Error waiting for stack {stack_name} deletion: {str(e)}")
+                              cfnresponse.send(event, context, cfnresponse.FAILED, {})
+                              return
+          
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as ex:
+                  print(f"Unexpected error: {ex}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
+  
+
+  MultiModalCleanCustomResource:
+    DependsOn: MultiModalCloudformationExecutionRole
+    Type: Custom::BuildCode
+    Properties:
+      ServiceToken: !GetAtt MultiModalCleanCustomResourceFunction.Arn
+      CODEBUCKET: !Ref MultiModalCodeS3Bucket
+      ARTIFACTBUCKET: !Ref MultiModalArtifactStore
+      TRAILBUCKET: !Ref MultiModalCloudTrailBucket
+      DATABUCKET: !Ref S3DataBucketName
