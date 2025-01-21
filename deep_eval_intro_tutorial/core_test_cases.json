@@ -1,0 +1,27 @@
+[
+    {
+        "user_query": "Hey, I've been experiencing headaches lately.",
+        "llm_output": "I can help you with that. Could you please provide more specific details about your headaches? For example, the duration, intensity, location, and any accompanying symptoms like nausea, vision changes, or sensitivity to light or sound. This information will help in making a more accurate diagnosis.",
+        "retrieval_context": "It is important to pay attention to any additional symptoms you may be experiencing along with the headaches, such as nausea, vomiting, dizziness, sensitivity to light and sound, or any changes in vision. If the headaches are severe or persistent, it is advisable to consult with a healthcare professional for a proper evaluation and diagnosis."
+    },
+    {
+        "user_query": "I've been coughing a lot lately.",
+        "llm_output": "Thank you for the additional symptom. Please describe your cough in more detail. Is it dry or productive (with phlegm), and what color is the phlegm if present? Also, let me know if you have symptoms such as fever, fatigue, shortness of breath, chest pain, or any other issues alongside the cough.",
+        "retrieval_context": "You may be experiencing symptoms of a respiratory issue, such as bronchitis. It is important to consult a healthcare professional for a proper diagnosis and appropriate treatment."
+    },
+    {
+        "user_query": "I'm feeling pretty sick, can I book an appointment tomorrow?",
+        "llm_output": "I'll start by setting up your appointment. Could you please confirm any additional symptoms beyond headaches and cough? Also, if you have a preferred time for the appointment tomorrow, let me know. Lastly, please provide your name, date, and email so I can complete the booking.",
+        "retrieval_context": "You may want to consider seeking medical advice or scheduling an appointment with a healthcare professional to address your current health concerns."
+    },
+    {
+        "user_query": "My name is John Doe. My email is johndoe@gmail.com, and I would\nlike to make an appointment on November 23, 2022.",
+        "llm_output": "The appointment has been created. Could you provide any additional details or symptoms you are experiencing, such as fever, fatigue, or any unusual symptoms associated with your headache and cough? This will help me in providing a more accurate diagnosis.",
+        "retrieval_context": "You can reach out to Mai Tran, Pharm.D., a Medical Writer from Troy, MI, to schedule an appointment on November 23, 2022."
+    },
+    {
+        "user_query": "My nose has been running constantly. Could it be something serious?",
+        "llm_output": "It seems there was an issue recording the diagnosis. Let's make sure we have your symptoms detailed accurately. You mentioned having headaches, a persistent cough, and a runny nose. Is there anything else you are experiencing, such as fever, sore throat, or body aches? This will ensure we have a comprehensive view for the diagnosis.",
+        "retrieval_context": "It is possible that your constantly running nose could be due to allergic rhinitis, which is an inflammation of the nasal passages caused by an allergic reaction to airborne substances. Allergic rhinitis is a common condition that can cause symptoms like a runny nose, sneezing, and nasal congestion. If the symptoms persist, it is advisable to consult a healthcare professional for proper evaluation and treatment."
+    }
+]
