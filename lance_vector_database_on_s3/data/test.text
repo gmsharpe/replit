@@ -1,0 +1,1040 @@
+Skip to content
+logo
+LanceDB
+Building an ANN index
+
+
+Search
+
+ lancedb/lancedb
+python-v0.18.1-beta.0
+5.3k
+369
+Home
+Quick start
+Concepts
+Guides
+Managing Embeddings
+Integrations
+Examples
+Studies
+API reference
+LanceDB Cloud
+Guides
+Working with tables
+Building an ANN index
+Vector Search
+Full-text search (native)
+Full-text search (tantivy-based)
+Building a scalar index
+Hybrid search
+RAG
+Reranking
+Filtering
+Versioning & Reproducibility
+Configuring Storage
+Migration Guide
+Tuning retrieval performance
+Disk-based Index
+Creating an IVF_PQ Index
+Use GPU to build vector index
+Querying an ANN Index
+Filtering (where clause)
+Projections (select clause)
+FAQ
+Why do I need to manually create an index?
+When is it necessary to create an ANN vector index?
+How big is my index, and how many memory will it take?
+How to choose num_partitions and num_sub_vectors for IVF_PQ index?
+How to choose m and ef_construction for IVF_HNSW_* index?
+Approximate Nearest Neighbor (ANN) Indexes
+An ANN or a vector index is a data structure specifically designed to efficiently organize and search vector data based on their similarity via the chosen distance metric. By constructing a vector index, the search space is effectively narrowed down, avoiding the need for brute-force scanning of the entire vector space. A vector index is faster but less accurate than exhaustive search (kNN or flat search). LanceDB provides many parameters to fine-tune the index's size, the speed of queries, and the accuracy of results.
+
+Disk-based Index
+Lance provides an IVF_PQ disk-based index. It uses Inverted File Index (IVF) to first divide the dataset into N partitions, and then applies Product Quantization to compress vectors in each partition. See the indexing concepts guide for more information on how this works.
+
+Creating an IVF_PQ Index
+Lance supports IVF_PQ index type by default.
+
+
+Python
+TypeScript
+Rust
+
+Sync API
+Async API
+Creating indexes is done via the create_index method.
+
+
+import lancedb
+
+import numpy as np
+
+uri = "data/sample-lancedb"
+
+# Create 5,000 sample vectors
+data = [
+    {"vector": row, "item": f"item {i}"}
+    for i, row in enumerate(np.random.random((5_000, 32)).astype("float32"))
+]
+
+db = lancedb.connect(uri)
+# Add the vectors to a table
+tbl = db.create_table("my_vectors", data=data)
+# Create and train the index - you need to have enough data in the table
+# for an effective training step
+tbl.create_index(num_partitions=2, num_sub_vectors=4)
+
+
+The following IVF_PQ paramters can be specified:
+
+distance_type: The distance metric to use. By default it uses euclidean distance "L2". We also support "cosine" and "dot" distance as well.
+num_partitions: The number of partitions in the index. The default is the square root of the number of rows.
+Note
+
+In the synchronous python SDK and node's vectordb the default is 256. This default has changed in the asynchronous python SDK and node's lancedb.
+
+num_sub_vectors: The number of sub-vectors (M) that will be created during Product Quantization (PQ). For D dimensional vector, it will be divided into M subvectors with dimension D/M, each of which is replaced by a single PQ code. The default is the dimension of the vector divided by 16.
+num_bits: The number of bits used to encode each sub-vector. Only 4 and 8 are supported. The higher the number of bits, the higher the accuracy of the index, also the slower search. The default is 8.
+Note
+
+In the synchronous python SDK and node's vectordb the default is currently 96. This default has changed in the asynchronous python SDK and node's lancedb.
+
+IVF PQ
+
+IVF_PQ index with num_partitions=2, num_sub_vectors=4
+Use GPU to build vector index
+Lance Python SDK has experimental GPU support for creating IVF index. Using GPU for index creation requires PyTorch>2.0 being installed.
+
+You can specify the GPU device to train IVF partitions via
+
+accelerator: Specify to cuda or mps (on Apple Silicon) to enable GPU training.
+
+Linux
+MacOS
+
+
+# Create index using CUDA on Nvidia GPUs.
+tbl.create_index(
+    num_partitions=256,
+    num_sub_vectors=96,
+    accelerator="cuda"
+)
+
+Note
+
+GPU based indexing is not yet supported with our asynchronous client.
+
+Troubleshooting:
+
+If you see AssertionError: Torch not compiled with CUDA enabled, you need to install PyTorch with CUDA support.
+
+Querying an ANN Index
+Querying vector indexes is done via the search function.
+
+There are a couple of parameters that can be used to fine-tune the search:
+
+limit (default: 10): The amount of results that will be returned
+nprobes (default: 20): The number of probes used. A higher number makes search more accurate but also slower.
+Most of the time, setting nprobes to cover 5-15% of the dataset should achieve high recall with low latency.
+
+For example, For a dataset of 1 million vectors divided into 256 partitions, nprobes should be set to ~20-40. This value can be adjusted to achieve the optimal balance between search latency and search quality.
+refine_factor (default: None): Refine the results by reading extra elements and re-ranking them in memory.
+A higher number makes search more accurate but also slower. If you find the recall is less than ideal, try refine_factor=10 to start.
+
+For example, For a dataset of 1 million vectors divided into 256 partitions, setting the refine_factor to 200 will initially retrieve the top 4,000 candidates (top k * refine_factor) from all searched partitions. These candidates are then reranked to determine the final top 20 results.
+Note
+
+Both nprobes and refine_factor are only applicable if an ANN index is present. If specified on a table without an ANN index, those parameters are ignored.
+
+
+Python
+TypeScript
+Rust
+
+Sync API
+Async API
+
+tbl.search(np.random.random((32))).limit(2).nprobes(20).refine_factor(
+    10
+).to_pandas()
+
+
+                                          vector       item       _distance
+0  [0.44949695, 0.8444449, 0.06281311, 0.23338133...  item 1141  103.575333
+1  [0.48587373, 0.269207, 0.15095535, 0.65531915,...  item 3953  108.393867
+
+The search will return the data requested in addition to the distance of each item.
+
+Filtering (where clause)
+You can further filter the elements returned by a search using a where clause.
+
+
+Python
+TypeScript
+
+Sync API
+Async API
+
+tbl.search(np.random.random((32))).where("item != 'item 1141'").to_pandas()
+
+
+Projections (select clause)
+You can select the columns returned by the query using a select clause.
+
+
+Python
+TypeScript
+
+Sync API
+Async API
+
+tbl.search(np.random.random((32))).select(["vector"]).to_pandas()
+
+
+                                            vector _distance
+0  [0.30928212, 0.022668175, 0.1756372, 0.4911822...  93.971092
+1  [0.2525465, 0.01723831, 0.261568, 0.002007689,...  95.173485
+...
+
+FAQ
+Why do I need to manually create an index?
+Currently, LanceDB does not automatically create the ANN index. LanceDB is well-optimized for kNN (exhaustive search) via a disk-based index. For many use-cases, datasets of the order of ~100K vectors don't require index creation. If you can live with up to 100ms latency, skipping index creation is a simpler workflow while guaranteeing 100% recall.
+
+When is it necessary to create an ANN vector index?
+LanceDB comes out-of-the-box with highly optimized SIMD code for computing vector similarity. In our benchmarks, computing distances for 100K pairs of 1K dimension vectors takes less than 20ms. We observe that for small datasets (~100K rows) or for applications that can accept 100ms latency, vector indices are usually not necessary.
+
+For large-scale or higher dimension vectors, it can beneficial to create vector index for performance.
+
+How big is my index, and how many memory will it take?
+In LanceDB, all vector indices are disk-based, meaning that when responding to a vector query, only the relevant pages from the index file are loaded from disk and cached in memory. Additionally, each sub-vector is usually encoded into 1 byte PQ code.
+
+For example, with a 1024-dimension dataset, if we choose num_sub_vectors=64, each sub-vector has 1024 / 64 = 16 float32 numbers. Product quantization can lead to approximately 16 * sizeof(float32) / 1 = 64 times of space reduction.
+
+How to choose
+num_partitions
+and
+num_sub_vectors
+for
+IVF_PQ
+index?
+num_partitions is used to decide how many partitions the first level IVF index uses. Higher number of partitions could lead to more efficient I/O during queries and better accuracy, but it takes much more time to train. On SIFT-1M dataset, our benchmark shows that keeping each partition 1K-4K rows lead to a good latency / recall.
+
+num_sub_vectors specifies how many Product Quantization (PQ) short codes to generate on each vector. The number should be a factor of the vector dimension. Because PQ is a lossy compression of the original vector, a higher num_sub_vectors usually results in less space distortion, and thus yields better accuracy. However, a higher num_sub_vectors also causes heavier I/O and more PQ computation, and thus, higher latency. dimension / num_sub_vectors should be a multiple of 8 for optimum SIMD efficiency.
+
+Note
+
+if num_sub_vectors is set to be greater than the vector dimension, you will see errors like attempt to divide by zero
+
+How to choose
+m
+and
+ef_construction
+for
+IVF_HNSW_*
+index?
+m determines the number of connections a new node establishes with its closest neighbors upon entering the graph. Typically, m falls within the range of 5 to 48. Lower m values are suitable for low-dimensional data or scenarios where recall is less critical. Conversely, higher m values are beneficial for high-dimensional data or when high recall is required. In essence, a larger m results in a denser graph with increased connectivity, but at the expense of higher memory consumption.
+
+ef_construction balances build speed and accuracy. Higher values increase accuracy but slow down the build process. A typical range is 150 to 300. For good search results, a minimum value of 100 is recommended. In most cases, setting this value above 500 offers no additional benefit. Ensure that ef_construction is always set to a value equal to or greater than ef in the search phase
+
+ Back to top
+Previous
+Working with tables
+Next
+Vector Search
+Made with Material for MkDocs
+Ask AI
+
+
+
+Skip to content
+logo
+LanceDB
+Working with tables
+
+
+Search
+
+ lancedb/lancedb
+python-v0.18.1-beta.0
+5.3k
+369
+Home
+Quick start
+Concepts
+Guides
+Managing Embeddings
+Integrations
+Examples
+Studies
+API reference
+LanceDB Cloud
+Guides
+Working with tables
+Building an ANN index
+Vector Search
+Full-text search (native)
+Full-text search (tantivy-based)
+Building a scalar index
+Hybrid search
+RAG
+Reranking
+Filtering
+Versioning & Reproducibility
+Configuring Storage
+Migration Guide
+Tuning retrieval performance
+Creating a LanceDB Table
+From list of tuples or dictionaries
+From a Pandas DataFrame
+From a Polars DataFrame
+From an Arrow Table
+From Pydantic Models
+Nested schemas
+Validators
+Pydantic custom types
+Using Iterators / Writing Large Datasets
+Open existing tables
+Creating empty table
+Adding to a table
+Add a Pandas DataFrame
+Add a Polars DataFrame
+Add an Iterator
+Add a PyArrow table
+Add a Pydantic Model
+Deleting from a table
+Deleting row with specific column value
+Delete from a list of values
+Deleting row with specific column value
+Delete from a list of values
+Updating a table
+Updating using a sql query
+Drop a table
+Changing schemas
+Adding new columns
+Altering existing columns
+Dropping columns
+Handling bad vectors
+Consistency
+What's next?
+Working with tables
+Open In Colab
+
+A Table is a collection of Records in a LanceDB Database. Tables in Lance have a schema that defines the columns and their types. These schemas can include nested columns and can evolve over time.
+
+This guide will show how to create tables, insert data into them, and update the data.
+
+Creating a LanceDB Table
+Initialize a LanceDB connection and create a table
+
+
+Python
+Typescript1
+
+Sync API
+Async API
+
+import lancedb
+
+uri = "data/sample-lancedb"
+db = lancedb.connect(uri)
+
+LanceDB allows ingesting data from various sources - dict, list[dict], pd.DataFrame, pa.Table or a Iterator[pa.RecordBatch]. Let's take a look at some of the these.
+
+
+From list of tuples or dictionaries
+
+Python
+Typescript1
+
+Sync API
+Async API
+
+data = [
+    {"vector": [1.1, 1.2], "lat": 45.5, "long": -122.7},
+    {"vector": [0.2, 1.8], "lat": 40.1, "long": -74.1},
+]
+db.create_table("test_table", data)
+db["test_table"].head()
+
+Note
+
+If the table already exists, LanceDB will raise an error by default.
+
+create_table supports an optional exist_ok parameter. When set to True and the table exists, then it simply opens the existing table. The data you passed in will NOT be appended to the table in that case.
+
+
+Sync API
+Async API
+
+db.create_table("test_table", data, exist_ok=True)
+
+Sometimes you want to make sure that you start fresh. If you want to overwrite the table, you can pass in mode="overwrite" to the createTable function.
+
+
+Sync API
+Async API
+
+db.create_table("test_table", data, mode="overwrite")
+
+
+From a Pandas DataFrame
+
+Sync API
+Async API
+
+import pandas as pd
+
+data = pd.DataFrame(
+    {
+        "vector": [[1.1, 1.2, 1.3, 1.4], [0.2, 1.8, 0.4, 3.6]],
+        "lat": [45.5, 40.1],
+        "long": [-122.7, -74.1],
+    }
+)
+db.create_table("my_table_pandas", data)
+db["my_table_pandas"].head()
+
+Note
+
+Data is converted to Arrow before being written to disk. For maximum control over how data is saved, either provide the PyArrow schema to convert to or else provide a PyArrow Table directly.
+
+The vector column needs to be a Vector (defined as pyarrow.FixedSizeList) type.
+
+
+Sync API
+Async API
+
+import pyarrow as pa
+
+custom_schema = pa.schema(
+    [
+        pa.field("vector", pa.list_(pa.float32(), 4)),
+        pa.field("lat", pa.float32()),
+        pa.field("long", pa.float32()),
+    ]
+)
+
+tbl = db.create_table("my_table_custom_schema", data, schema=custom_schema)
+
+From a Polars DataFrame
+LanceDB supports Polars, a modern, fast DataFrame library written in Rust. Just like in Pandas, the Polars integration is enabled by PyArrow under the hood. A deeper integration between LanceDB Tables and Polars DataFrames is on the way.
+
+
+Sync API
+Async API
+
+import polars as pl
+
+data = pl.DataFrame(
+    {
+        "vector": [[3.1, 4.1], [5.9, 26.5]],
+        "item": ["foo", "bar"],
+        "price": [10.0, 20.0],
+    }
+)
+tbl = db.create_table("my_table_pl", data)
+
+From an Arrow Table
+You can also create LanceDB tables directly from Arrow tables. LanceDB supports float16 data type!
+
+
+Python
+Typescript1
+
+Sync API
+Async API
+
+import pyarrow as pa
+
+import numpy as np
+
+dim = 16
+total = 2
+schema = pa.schema(
+    [pa.field("vector", pa.list_(pa.float16(), dim)), pa.field("text", pa.string())]
+)
+data = pa.Table.from_arrays(
+    [
+        pa.array(
+            [np.random.randn(dim).astype(np.float16) for _ in range(total)],
+            pa.list_(pa.float16(), dim),
+        ),
+        pa.array(["foo", "bar"]),
+    ],
+    ["vector", "text"],
+)
+tbl = db.create_table("f16_tbl", data, schema=schema)
+
+
+From Pydantic Models
+When you create an empty table without data, you must specify the table schema. LanceDB supports creating tables by specifying a PyArrow schema or a specialized Pydantic model called LanceModel.
+
+For example, the following Content model specifies a table with 5 columns: movie_id, vector, genres, title, and imdb_id. When you create a table, you can pass the class as the value of the schema parameter to create_table. The vector column is a Vector type, which is a specialized Pydantic type that can be configured with the vector dimensions. It is also important to note that LanceDB only understands subclasses of lancedb.pydantic.LanceModel (which itself derives from pydantic.BaseModel).
+
+
+Sync API
+Async API
+
+from lancedb.pydantic import Vector, LanceModel
+
+import pyarrow as pa
+
+class Content(LanceModel):
+    movie_id: int
+    vector: Vector(128)
+    genres: str
+    title: str
+    imdb_id: int
+
+    @property
+    def imdb_url(self) -> str:
+        return f"https://www.imdb.com/title/tt{self.imdb_id}"
+
+
+tbl = db.create_table("movielens_small", schema=Content)
+
+Nested schemas
+Sometimes your data model may contain nested objects. For example, you may want to store the document string and the document source name as a nested Document object:
+
+
+from pydantic import BaseModel
+
+class Document(BaseModel):
+    content: str
+    source: str
+This can be used as the type of a LanceDB table column:
+
+
+Sync API
+Async API
+
+class NestedSchema(LanceModel):
+    id: str
+    vector: Vector(1536)
+    document: Document
+
+
+tbl = db.create_table("nested_table", schema=NestedSchema)
+
+This creates a struct column called "document" that has two subfields called "content" and "source":
+
+
+In [28]: tbl.schema
+Out[28]:
+id: string not null
+vector: fixed_size_list<item: float>[1536] not null
+    child 0, item: float
+document: struct<content: string not null, source: string not null> not null
+    child 0, content: string not null
+    child 1, source: string not null
+Validators
+Note that neither Pydantic nor PyArrow automatically validates that input data is of the correct timezone, but this is easy to add as a custom field validator:
+
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from lancedb.pydantic import LanceModel
+from pydantic import Field, field_validator, ValidationError, ValidationInfo
+
+tzname = "America/New_York"
+tz = ZoneInfo(tzname)
+
+class TestModel(LanceModel):
+    dt_with_tz: datetime = Field(json_schema_extra={"tz": tzname})
+
+    @field_validator('dt_with_tz')
+    @classmethod
+    def tz_must_match(cls, dt: datetime) -> datetime:
+        assert dt.tzinfo == tz
+        return dt
+
+ok = TestModel(dt_with_tz=datetime.now(tz))
+
+try:
+    TestModel(dt_with_tz=datetime.now(ZoneInfo("Asia/Shanghai")))
+    assert 0 == 1, "this should raise ValidationError"
+except ValidationError:
+    print("A ValidationError was raised.")
+    pass
+When you run this code it should print "A ValidationError was raised."
+
+Pydantic custom types
+LanceDB does NOT yet support converting pydantic custom types. If this is something you need, please file a feature request on the LanceDB Github repo.
+
+Using Iterators / Writing Large Datasets
+It is recommended to use iterators to add large datasets in batches when creating your table in one go. This does not create multiple versions of your dataset unlike manually adding batches using table.add()
+
+LanceDB additionally supports PyArrow's RecordBatch Iterators or other generators producing supported data types.
+
+Here's an example using using RecordBatch iterator for creating tables.
+
+
+Sync API
+Async API
+
+import pyarrow as pa
+
+def make_batches():
+    for i in range(5):
+        yield pa.RecordBatch.from_arrays(
+            [
+                pa.array(
+                    [[3.1, 4.1, 5.1, 6.1], [5.9, 26.5, 4.7, 32.8]],
+                    pa.list_(pa.float32(), 4),
+                ),
+                pa.array(["foo", "bar"]),
+                pa.array([10.0, 20.0]),
+            ],
+            ["vector", "item", "price"],
+        )
+
+
+schema = pa.schema(
+    [
+        pa.field("vector", pa.list_(pa.float32(), 4)),
+        pa.field("item", pa.utf8()),
+        pa.field("price", pa.float32()),
+    ]
+)
+db.create_table("batched_tale", make_batches(), schema=schema)
+
+You can also use iterators of other types like Pandas DataFrame or Pylists directly in the above example.
+
+Open existing tables
+
+Python
+Typescript1
+If you forget the name of your table, you can always get a listing of all table names.
+
+
+Sync API
+Async API
+
+print(db.table_names())
+
+Then, you can open any existing tables.
+
+
+Sync API
+Async API
+
+tbl = db.open_table("test_table")
+
+
+Creating empty table
+You can create an empty table for scenarios where you want to add data to the table later. An example would be when you want to collect data from a stream/external file and then add it to a table in batches.
+
+
+Python
+Typescript1
+An empty table can be initialized via a PyArrow schema.
+
+
+Sync API
+Async API
+
+import lancedb
+
+import pyarrow as pa
+
+schema = pa.schema(
+    [
+        pa.field("vector", pa.list_(pa.float32(), 2)),
+        pa.field("item", pa.string()),
+        pa.field("price", pa.float32()),
+    ]
+)
+tbl = db.create_table("test_empty_table", schema=schema)
+
+Alternatively, you can also use Pydantic to specify the schema for the empty table. Note that we do not directly import pydantic but instead use lancedb.pydantic which is a subclass of pydantic.BaseModel that has been extended to support LanceDB specific types like Vector.
+
+
+Sync API
+Async API
+
+import lancedb
+
+from lancedb.pydantic import Vector, LanceModel
+
+class Item(LanceModel):
+    vector: Vector(2)
+    item: str
+    price: float
+
+
+tbl = db.create_table("test_empty_table_new", schema=Item.to_arrow_schema())
+
+Once the empty table has been created, you can add data to it via the various methods listed in the Adding to a table section.
+
+
+Adding to a table
+After a table has been created, you can always add more data to it using the add method
+
+
+Python
+Typescript1
+You can add any of the valid data structures accepted by LanceDB table, i.e, dict, list[dict], pd.DataFrame, or Iterator[pa.RecordBatch]. Below are some examples.
+
+Add a Pandas DataFrame
+
+Sync API
+Async API
+
+df = pd.DataFrame(
+    {
+        "vector": [[1.3, 1.4], [9.5, 56.2]],
+        "item": ["banana", "apple"],
+        "price": [5.0, 7.0],
+    }
+)
+
+tbl.add(df)
+
+Add a Polars DataFrame
+
+Sync API
+Async API
+
+df = pl.DataFrame(
+    {
+        "vector": [[1.3, 1.4], [9.5, 56.2]],
+        "item": ["banana", "apple"],
+        "price": [5.0, 7.0],
+    }
+)
+
+tbl.add(df)
+
+Add an Iterator
+You can also add a large dataset batch in one go using Iterator of any supported data types.
+
+
+Sync API
+Async API
+
+def make_batches_for_add():
+    for i in range(5):
+        yield [
+            {"vector": [3.1, 4.1], "item": "peach", "price": 6.0},
+            {"vector": [5.9, 26.5], "item": "pear", "price": 5.0},
+        ]
+
+
+tbl.add(make_batches_for_add())
+
+Add a PyArrow table
+If you have data coming in as a PyArrow table, you can add it directly to the LanceDB table.
+
+
+Sync API
+Async API
+
+pa_table = pa.Table.from_arrays(
+    [
+        pa.array([[9.1, 6.7], [9.9, 31.2]], pa.list_(pa.float32(), 2)),
+        pa.array(["mango", "orange"]),
+        pa.array([7.0, 4.0]),
+    ],
+    ["vector", "item", "price"],
+)
+tbl.add(pa_table)
+
+Add a Pydantic Model
+Assuming that a table has been created with the correct schema as shown above, you can add data items that are valid Pydantic models to the table.
+
+
+Sync API
+Async API
+
+pydantic_model_items = [
+    Item(vector=[8.1, 4.7], item="pineapple", price=10.0),
+    Item(vector=[6.9, 9.3], item="avocado", price=9.0),
+]
+tbl.add(pydantic_model_items)
+
+Ingesting Pydantic models with LanceDB embedding API
+
+Deleting from a table
+Use the delete() method on tables to delete rows from a table. To choose which rows to delete, provide a filter that matches on the metadata columns. This can delete any number of rows that match the filter.
+
+
+Python
+Typescript1
+
+Sync API
+Async API
+
+tbl.delete('item = "fizz"')
+
+Deleting row with specific column value
+
+Sync API
+Async API
+
+data = [
+    {"x": 1, "vector": [1, 2]},
+    {"x": 2, "vector": [3, 4]},
+    {"x": 3, "vector": [5, 6]},
+]
+# Synchronous client
+tbl = db.create_table("delete_row", data)
+tbl.to_pandas()
+#   x      vector
+# 0  1  [1.0, 2.0]
+# 1  2  [3.0, 4.0]
+# 2  3  [5.0, 6.0]
+
+tbl.delete("x = 2")
+tbl.to_pandas()
+#   x      vector
+# 0  1  [1.0, 2.0]
+# 1  3  [5.0, 6.0]
+
+Delete from a list of values
+
+Sync API
+Async API
+
+to_remove = [1, 5]
+to_remove = ", ".join(str(v) for v in to_remove)
+
+tbl.delete(f"x IN ({to_remove})")
+tbl.to_pandas()
+#   x      vector
+# 0  3  [5.0, 6.0]
+
+
+Updating a table
+This can be used to update zero to all rows depending on how many rows match the where clause. The update queries follow the form of a SQL UPDATE statement. The where parameter is a SQL filter that matches on the metadata columns. The values or values_sql parameters are used to provide the new values for the columns.
+
+Parameter	Type	Description
+where	str	The SQL where clause to use when updating rows. For example, 'x = 2' or 'x IN (1, 2, 3)'. The filter must not be empty, or it will error.
+values	dict	The values to update. The keys are the column names and the values are the values to set.
+values_sql	dict	The values to update. The keys are the column names and the values are the SQL expressions to set. For example, {'x': 'x + 1'} will increment the value of the x column by 1.
+SQL syntax
+
+See SQL filters for more information on the supported SQL syntax.
+
+Warning
+
+Updating nested columns is not yet supported.
+
+
+Python
+Typescript1
+API Reference: lancedb.table.Table.update
+
+
+Sync API
+Async API
+
+import lancedb
+
+import pandas as pd
+
+# Create a table from a pandas DataFrame
+data = pd.DataFrame({"x": [1, 2, 3], "vector": [[1, 2], [3, 4], [5, 6]]})
+
+tbl = db.create_table("test_table", data, mode="overwrite")
+# Update the table where x = 2
+tbl.update(where="x = 2", values={"vector": [10, 10]})
+# Get the updated table as a pandas DataFrame
+df = tbl.to_pandas()
+print(df)
+
+Output
+
+
+    x  vector
+0  1  [1.0, 2.0]
+1  3  [5.0, 6.0]
+2  2  [10.0, 10.0]
+
+Updating using a sql query
+The values parameter is used to provide the new values for the columns as literal values. You can also use the values_sql / valuesSql parameter to provide SQL expressions for the new values. For example, you can use values_sql="x + 1" to increment the value of the x column by 1.
+
+
+Python
+Typescript1
+
+Sync API
+Async API
+
+# Update the table where x = 2
+tbl.update(values_sql={"x": "x + 1"})
+print(tbl.to_pandas())
+
+Output
+
+
+    x  vector
+0  2  [1.0, 2.0]
+1  4  [5.0, 6.0]
+2  3  [10.0, 10.0]
+
+Note
+
+When rows are updated, they are moved out of the index. The row will still show up in ANN queries, but the query will not be as fast as it would be if the row was in the index. If you update a large proportion of rows, consider rebuilding the index afterwards.
+
+Drop a table
+Use the drop_table() method on the database to remove a table.
+
+
+Python
+TypeScript
+
+Sync API
+Async API
+
+# Synchronous client
+db.drop_table("my_table")
+
+This permanently removes the table and is not recoverable, unlike deleting rows. By default, if the table does not exist an exception is raised. To suppress this, you can pass in ignore_missing=True.
+
+
+Changing schemas
+While tables must have a schema specified when they are created, you can change the schema over time. There's three methods to alter the schema of a table:
+
+add_columns: Add new columns to the table
+alter_columns: Alter the name, nullability, or data type of a column
+drop_columns: Drop columns from the table
+Adding new columns
+You can add new columns to the table with the add_columns method. New columns are filled with values based on a SQL expression. For example, you can add a new column y to the table, fill it with the value of x * 2 and set the expected data type for it.
+
+
+Python
+Typescript
+
+Sync API
+Async API
+
+tbl.add_columns({"double_price": "cast((price * 2) as float)"})
+
+API Reference: lancedb.table.Table.add_columns
+
+
+If you want to fill it with null, you can use cast(NULL as <data_type>) as the SQL expression to fill the column with nulls, while controlling the data type of the column. Available data types are base on the DataFusion data types. You can use any of the SQL types, such as BIGINT:
+
+
+cast(NULL as BIGINT)
+Using Arrow data types and the arrow_typeof function is not yet supported.
+
+Altering existing columns
+You can alter the name, nullability, or data type of a column with the alter_columns method.
+
+Changing the name or nullability of a column just updates the metadata. Because of this, it's a fast operation. Changing the data type of a column requires rewriting the column, which can be a heavy operation.
+
+
+Python
+Typescript
+
+Sync API
+Async API
+
+import pyarrow as pa
+
+tbl.alter_columns(
+    {
+        "path": "double_price",
+        "rename": "dbl_price",
+        "data_type": pa.float64(),
+        "nullable": True,
+    }
+)
+
+API Reference: lancedb.table.Table.alter_columns
+
+
+Dropping columns
+You can drop columns from the table with the drop_columns method. This will will remove the column from the schema.
+
+
+Python
+Typescript
+
+Sync API
+Async API
+
+tbl.drop_columns(["dbl_price"])
+
+API Reference: lancedb.table.Table.drop_columns
+
+
+Handling bad vectors
+In LanceDB Python, you can use the on_bad_vectors parameter to choose how invalid vector values are handled. Invalid vectors are vectors that are not valid because:
+
+They are the wrong dimension
+They contain NaN values
+They are null but are on a non-nullable field
+By default, LanceDB will raise an error if it encounters a bad vector. You can also choose one of the following options:
+
+drop: Ignore rows with bad vectors
+fill: Replace bad values (NaNs) or missing values (too few dimensions) with the fill value specified in the fill_value parameter. An input like [1.0, NaN, 3.0] will be replaced with [1.0, 0.0, 3.0] if fill_value=0.0.
+null: Replace bad vectors with null (only works if the column is nullable). A bad vector [1.0, NaN, 3.0] will be replaced with null if the column is nullable. If the vector column is non-nullable, then bad vectors will cause an error
+Consistency
+In LanceDB OSS, users can set the read_consistency_interval parameter on connections to achieve different levels of read consistency. This parameter determines how frequently the database synchronizes with the underlying storage system to check for updates made by other processes. If another process updates a table, the database will not see the changes until the next synchronization.
+
+There are three possible settings for read_consistency_interval:
+
+Unset (default): The database does not check for updates to tables made by other processes. This provides the best query performance, but means that clients may not see the most up-to-date data. This setting is suitable for applications where the data does not change during the lifetime of the table reference.
+Zero seconds (Strong consistency): The database checks for updates on every read. This provides the strongest consistency guarantees, ensuring that all clients see the latest committed data. However, it has the most overhead. This setting is suitable when consistency matters more than having high QPS.
+Custom interval (Eventual consistency): The database checks for updates at a custom interval, such as every 5 seconds. This provides eventual consistency, allowing for some lag between write and read operations. Performance wise, this is a middle ground between strong consistency and no consistency check. This setting is suitable for applications where immediate consistency is not critical, but clients should see updated data eventually.
+Consistency in LanceDB Cloud
+
+This is only tune-able in LanceDB OSS. In LanceDB Cloud, readers are always eventually consistent.
+
+
+Python
+Typescript1
+To set strong consistency, use timedelta(0):
+
+
+Sync API
+Async API
+
+from datetime import timedelta
+
+uri = "data/sample-lancedb"
+db = lancedb.connect(uri, read_consistency_interval=timedelta(0))
+tbl = db.open_table("test_table")
+
+For eventual consistency, use a custom timedelta:
+
+
+Sync API
+Async API
+
+from datetime import timedelta
+
+uri = "data/sample-lancedb"
+db = lancedb.connect(uri, read_consistency_interval=timedelta(seconds=5))
+tbl = db.open_table("test_table")
+
+By default, a Table will never check for updates from other writers. To manually check for updates you can use checkout_latest:
+
+
+Sync API
+Async API
+
+tbl = db.open_table("test_table")
+
+# (Other writes happen to my_table from another process)
+
+# Check for updates
+tbl.checkout_latest()
+
+
+What's next?
+Learn the best practices on creating an ANN index and getting the most out of it.
+
+The vectordb package is a legacy package that is deprecated in favor of @lancedb/lancedb. The vectordb package will continue to receive bug fixes and security updates until September 2024. We recommend all new projects use @lancedb/lancedb. See the migration guide for more information. ↩↩↩↩↩↩↩↩↩↩
+
+ Back to top
+Previous
+Data management
+Next
+Building an ANN index
+Made with Material for MkDocs
+Ask AI
