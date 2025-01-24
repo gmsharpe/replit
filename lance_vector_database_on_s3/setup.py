@@ -3,10 +3,6 @@ import json
 from botocore.exceptions import ClientError
 
 
-def init_setup():
-
-
-
 def setup_cloud_resources(bucket_name, project_id_suffix, region='us-east-1', ):
     """
     Create the S3 bucket, IAM policy, and IAM role needed for LanceDB.
@@ -132,12 +128,16 @@ def setup_cloud_resources(bucket_name, project_id_suffix, region='us-east-1', ):
         raise
 
 
-def assume_limited_role():
+def assume_limited_role(role_name, region='us-east-1'):
     """
         Assume a role with limited permissions to interact with the S3 bucket.
 
-    :return:
+    :return: Temporary credentials for the assumed role.
     """
+    sts_client = boto3.client('sts', region_name=region)
+    caller_identity = sts_client.get_caller_identity()
+    account_id = caller_identity.get('Account')
+
     try:
         assumed_role_object = sts_client.assume_role(
             RoleArn=f'arn:aws:iam::{account_id}:role/{role_name}',
@@ -149,25 +149,19 @@ def assume_limited_role():
         print(f"Error assuming role: {e}")
         raise
 
-    # Use the temporary credentials to interact with S3
-    try:
-        lancedb_session = boto3.Session(
-            aws_access_key_id=credentials['AccessKeyId'],
-            aws_secret_access_key=credentials['SecretAccessKey'],
-            aws_session_token=credentials['SessionToken']
-        )
-        s3 = lancedb_session.client('s3')
-        print("Initialized S3 client with temporary credentials.")
-    except ClientError as e:
-        print(f"Error initializing S3 client: {e}")
-        raise
-
-    return lancedb_session, s3, credentials
+    return credentials
 
 
 
 
-def destroy(bucket_name):
+def destroy(bucket_name, policy_name, role_name, region='us-east-1'):
+
+    # Initialize Boto3 clients
+    s3 = boto3.client('s3', region_name=region)
+    iam = boto3.client('iam', region_name=region)
+    sts_client = boto3.client('sts', region_name=region)
+    account_id = sts_client.get_caller_identity().get('Account')
+    policy_arn = f'arn:aws:iam::{account_id}:policy/{policy_name}'
     # Detach and delete the IAM policy
     try:
         # Detach the policy from all roles

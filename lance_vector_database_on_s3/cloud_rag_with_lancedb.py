@@ -9,16 +9,11 @@ from llama_index.llms.openai import OpenAI
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 import lancedb
 
-from data_utils import changes_detected
+from data_utils import chunk_documents
 from setup import setup_cloud_resources, assume_limited_role
 
-
-
-
-
-
 # initialize the LanceDBVectorStore
-def init_vector_store(db_uri):
+def init_vector_store(db_uri, credentials):
     # Initialize LanceDB with the temporary credentials
     try:
         db = lancedb.connect(
@@ -69,7 +64,7 @@ def build_RAG(
     # Initialize storage context
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
-    changes, documents = changes_detected(input_data_dir)
+    changes, documents = chunk_documents(input_data_dir)
     # Check for changes in the input data directory
     if changes:  # changes_detected(input_data_dir):
         # If changes are detected, clear the vector store
@@ -105,28 +100,38 @@ def interactive_session():
 
 
 if __name__ == "__main__":
-    db_name = ""        # Database name
-    bucket_name = ""
-    project_id_prefix = ""   # Unique name for your project
+    # Database name
+    db_name = ""
+    # Unique name for your project
     #   (also used for s3 bucket so no spaces or underscores)
+    project_id_prefix = ""
+
     bucket_name = project_id_prefix + 'lancedb-on-s3'
 
-    setup_cloud_resources(bucket_name)
-    _, _, credentials = assume_limited_role()
+    setup_cloud_resources(bucket_name, project_id_prefix, region='us-west-1')
+    credentials = assume_limited_role(project_id_prefix)
 
     input_data_dir = "data"
     if not os.path.exists(input_data_dir):
         os.makedirs(input_data_dir)
-    if os.path.exists(input_data_dir + "/document_1.pdf"):
-        print("PDFs already downloaded.")
-    else:
-        print("Downloading PDFs...")
-        # download_pdfs(pdf_urls)
+
+    # set this to True when ready to use the Gale Encyclopedia of Medicine PDFs
+    using_gale_encyclopedia_of_medicine = False
+
+    if using_gale_encyclopedia_of_medicine:
+        if os.path.exists(input_data_dir + "/document_1.pdf"):
+            print("PDFs already downloaded.")
+        else:
+            print("Downloading PDFs...")
+            # download_pdfs(pdf_urls)
+
+    # todo - download page from lanceDB website and save to text file
+
     db_uri = f"s3://{bucket_name}/{db_name}/"
     matryoshka_embedding_model = "tomaarsen/mpnet-base-nli-matryoshka"
     matryoshka_embedding_size = 256
 
-    db = init_vector_store(db_uri)
+    db = init_vector_store(db_uri, credentials)
 
     query_engine = build_RAG(
         input_data_dir, matryoshka_embedding_model, matryoshka_embedding_size, db,

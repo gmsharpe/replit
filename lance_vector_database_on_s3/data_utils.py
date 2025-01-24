@@ -1,3 +1,5 @@
+from typing import BinaryIO
+
 import requests, os, hashlib, json, pickle
 from llama_index.core import SimpleDirectoryReader
 
@@ -11,8 +13,8 @@ pdf_urls = [
 
 # Function to download the PDF
 # https://drive.usercontent.google.com/u/0/uc?id=0B7HZIUBvCH1EVGxpNEdXVklLQk0&export=download
-def download_pdf(id, filename):
-    response = requests.get(f"https://drive.usercontent.google.com/u/0/uc?id={id}&export=download", stream=True)
+def download_pdf(google_doc_id, filename):
+    response = requests.get(f"https://drive.usercontent.google.com/u/0/uc?id={google_doc_id}&export=download", stream=True)
     if response.status_code == 200:
         with open(filename, "wb") as pdf_file:
             for chunk in response.iter_content(chunk_size=1024):
@@ -22,15 +24,20 @@ def download_pdf(id, filename):
         print(f"Failed to download: {filename} - Status Code: {response.status_code}")
 
 
-def download_pdfs(ids):
+def download_pdfs(google_doc_ids):
     # Loop through the URLs and download each PDF
-    for index, id in enumerate(ids):
+    for index, id in enumerate(google_doc_ids):
         # Generate the filename
         filename = f"data/document_{index + 1}.pdf"
         # Download the PDF
         download_pdf(id, filename)
 
-def changes_detected(input_data_dir):
+def chunk_documents(input_data_dir):
+    """
+
+    :param input_data_dir:
+    :return: a tuple indicating whether there are changes and the documents (changes, documents)
+    """
     doc_dir = os.path.join(input_data_dir, "documents.pkl")
     """Calculate a hash based on the contents of the directory."""
     hash_obj = hashlib.md5()
