@@ -3,15 +3,13 @@ import json
 from botocore.exceptions import ClientError
 
 
-def setup_cloud_resources(bucket_name, project_id_suffix, region='us-east-1', ):
+def setup_cloud_resources(bucket_name, role_name, policy_name, region='us-east-1', ):
     """
     Create the S3 bucket, IAM policy, and IAM role needed for LanceDB.
     @param bucket_name: The name of the S3 bucket to create.
     @param region: The AWS region to create the resources in. If None, the default region is used.
     :return:
     """
-    policy_name = 'LanceDBS3AccessPolicy' + project_id_suffix
-    role_name = 'LanceDBS3AccessRole' + project_id_suffix
 
     # Initialize Boto3 clients
     s3 = boto3.client('s3', region_name=region)
@@ -89,7 +87,7 @@ def setup_cloud_resources(bucket_name, project_id_suffix, region='us-east-1', ):
 
     # Check if the IAM role exists
     try:
-        iam.get_role(RoleName=role_name)
+        response = iam.get_role(RoleName=role_name)
         print(f"Role '{role_name}' already exists.")
     except ClientError as e:
         error_code = e.response['Error']['Code']
@@ -240,3 +238,4 @@ def destroy(bucket_name, policy_name, role_name, region='us-east-1'):
         else:
             print(f"Error deleting bucket: {e}")
             return
+
