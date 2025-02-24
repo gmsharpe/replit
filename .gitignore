@@ -165,3 +165,21 @@ cython_debug/
 *.code-workspace
 .terraform.lock.hcl
 *\.terraform*
+
+*.tfstate
+*.tfstate.*
+
+*.idea/**
+*.vscode/**
+*.iml
+
+# lance
+*.txn
+*.lance
+
+*.bin
+
+*.pkl
+*.pickle
+
+*.sqlite3
