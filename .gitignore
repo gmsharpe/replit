@@ -176,6 +176,7 @@ cython_debug/
 # lance
 *.txn
 *.lance
+**/lancedb.**
 
 *.bin
 
@@ -183,3 +184,5 @@ cython_debug/
 *.pickle
 
 *.sqlite3
+
+*.gguf
