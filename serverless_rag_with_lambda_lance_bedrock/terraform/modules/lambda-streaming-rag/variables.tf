@@ -1,3 +1,4 @@
 variable "stack_name" {}
 variable "function_name" {}
-variable "ecr_image_uri" {}
+variable "document_table_name" { }
+variable "artifact_bucket_id" { }

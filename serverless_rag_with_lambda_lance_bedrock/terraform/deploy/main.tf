@@ -6,17 +6,17 @@ module "lambda-streaming-rag" {
   source        = "../modules/lambda-streaming-rag"
   stack_name    = var.stack_name
   function_name = var.function_name
-  ecr_image_uri = module.cicd.ecr_repository_url
-
+  document_table_name = var.document_table_name
+  artifact_bucket_id = module.cicd.artifact_bucket_id
 }
 
 module "cicd" {
-  source     = "../modules/cicd"
-  stack_name = var.stack_name
+  source             = "../modules/cicd"
+  stack_name         = var.stack_name
+  function_name      = var.function_name
+  github_branch      = var.github_branch
+  github_oauth_token = var.github_oauth_token
+  github_owner       = var.github_owner
+  github_repo        = var.github_repo
+  lambda_source_path = var.lambda_source_path
 }
-
-
-data "aws_region" "current" {}
-
-data "aws_caller_identity" "current" {}
-

@@ -13,5 +13,6 @@
     "langchain": "^0.1.19",
     "vectordb": "^0.1.19",
     "@lancedb/vectordb-linux-x64-gnu": "^0.3.5"
-  }
+  },
+  "type": "module"
 }
