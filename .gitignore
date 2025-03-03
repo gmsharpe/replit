@@ -186,3 +186,6 @@ cython_debug/
 *.sqlite3
 
 *.gguf
+
+**/serverless_rag_with_lambda_lance_bedrock/lambda-bedrock-s3-streaming-rag/**
+**/serverless_rag_with_lambda_lance_bedrock/serverless_rag_with_lambda_lance_bedrock/**
