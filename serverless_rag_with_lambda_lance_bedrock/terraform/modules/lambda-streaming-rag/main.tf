@@ -2,9 +2,6 @@ data "aws_region" "current" {}
 
 data "aws_caller_identity" "current" {}
 
-variable "stack_name" {}
-variable "function_name" {}
-
 resource "aws_s3_bucket" "artifact_bucket" {
   bucket = "${var.stack_name}-artifacts-${data.aws_region.current.name}-${data.aws_caller_identity.current.account_id}"
 }
