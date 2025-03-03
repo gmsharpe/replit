@@ -5,8 +5,10 @@ variable "function_name" {
   default = "streaming-rag-on-lambda"
 }
 variable "github_oauth_token" {
-  default = ""
+  type = string
+  sensitive = true
 }
+
 variable "github_repo" {
   default = "replit"
 }

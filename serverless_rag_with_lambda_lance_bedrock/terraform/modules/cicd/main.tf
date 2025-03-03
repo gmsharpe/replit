@@ -1,10 +1,11 @@
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
-# data "aws_ssm_parameter" "github_oauth_token" {
-#   name  = "/github/oauth_token"
-#   with_decryption = true
-# }
+resource "aws_ssm_parameter" "github_oauth_token" {
+  name  = "/github/replit/oauth_token"
+  type  = "SecureString"
+  value = var.github_oauth_token
+}
 
 resource "aws_s3_bucket" "artifact_bucket" {
   bucket = "${var.stack_name}-artifacts-${data.aws_region.current.name}-${data.aws_caller_identity.current.account_id}"
@@ -26,55 +27,6 @@ resource "aws_iam_role" "codepipeline_role" {
     ]
   })
 }
-
-resource "aws_codebuild_project" "document_processor_build" {
-  name         = "document-processor-build"
-  service_role = aws_iam_role.codepipeline_role.arn
-
-  source {
-    type     = "GITHUB"
-    location = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    buildspec = <<-EOT
-version: 0.2
-
-phases:
-  install:
-    runtime-versions:
-      nodejs: latest
-  pre_build:
-    commands:
-      - echo "Navigating to Lambda function directory..."
-      - cd ${var.lambda_source_path}
-      - echo "Installing dependencies..."
-      - npm install
-  build:
-    commands:
-      - echo "Zipping Lambda function (including .mjs files)..."
-      - zip -r lambda_function.zip *.mjs node_modules package.json
-  post_build:
-    commands:
-      - echo "Uploading artifact to S3..."
-      - aws s3 cp lambda_function.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_function.zip --region ${data.aws_region.current.name}
-artifacts:
-  files:
-    - lambda_function.zip
-EOT
-
-  }
-
-  artifacts {
-    type     = "S3"
-    location = aws_s3_bucket.artifact_bucket.id
-  }
-
-  environment {
-    compute_type    = "BUILD_GENERAL1_SMALL"
-    image           = "aws/codebuild/standard:5.0"
-    type            = "LINUX_CONTAINER"
-    privileged_mode = true
-  }
-}
-
 
 resource "aws_codepipeline" "document_processor_pipeline" {
   name     = "document-processor-pipeline"
@@ -135,5 +87,115 @@ resource "aws_codepipeline" "document_processor_pipeline" {
         S3Key        = "lambda_function.zip"
       }
     }
+  }
+}
+
+resource "aws_iam_policy" "codebuild_policy" {
+  name        = "codebuild-policy"
+  description = "Policy for CodeBuild to access S3, CloudWatch, and logs"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:GetBucketLocation"
+        ]
+        Resource = [
+          aws_s3_bucket.artifact_bucket.arn,
+          "${aws_s3_bucket.artifact_bucket.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "codebuild:StartBuild",
+          "codebuild:BatchGetBuilds"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "codebuild_role" {
+  name = "codebuild-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "codebuild.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "codebuild_custom_policy" {
+  role       = aws_iam_role.codebuild_role.name
+  policy_arn = aws_iam_policy.codebuild_policy.arn
+}
+
+resource "aws_codebuild_project" "document_processor_build" {
+  name         = "document-processor-build"
+  service_role = aws_iam_role.codebuild_role.arn
+
+  source {
+    type     = "GITHUB"
+    location = "https://github.com/${var.github_owner}/${var.github_repo}.git"
+    buildspec = <<-EOT
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: latest
+  pre_build:
+    commands:
+      - echo "Navigating to Lambda function directory..."
+      - cd ${var.lambda_source_path}
+      - echo "Installing dependencies..."
+      - npm install
+  build:
+    commands:
+      - echo "Zipping Lambda function (including .mjs files)..."
+      - zip -r lambda_function.zip *.mjs node_modules package.json
+  post_build:
+    commands:
+      - echo "Uploading artifact to S3..."
+      - aws s3 cp lambda_function.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_function.zip --region ${data.aws_region.current.name}
+artifacts:
+  files:
+    - lambda_function.zip
+EOT
+
+  }
+
+  artifacts {
+    type     = "S3"
+    location = aws_s3_bucket.artifact_bucket.id
+  }
+
+  environment {
+    compute_type    = "BUILD_GENERAL1_SMALL"
+    image           = "aws/codebuild/standard:5.0"
+    type            = "LINUX_CONTAINER"
+    privileged_mode = true
   }
 }

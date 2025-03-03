@@ -8,6 +8,7 @@ module "lambda-streaming-rag" {
   function_name = var.function_name
   document_table_name = var.document_table_name
   artifact_bucket_id = module.cicd.artifact_bucket_id
+  depends_on = [module.cicd]
 }
 
 module "cicd" {
