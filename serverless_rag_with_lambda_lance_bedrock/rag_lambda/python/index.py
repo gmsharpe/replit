@@ -1,10 +1,10 @@
 import os
 
 from lancedb import connect, connect_async
-from langchain.chat_models import ChatBedrock
-from langchain.embeddings import BedrockEmbeddings
+from langchain_aws import ChatBedrock
+from langchain_aws import BedrockEmbeddings
 from langchain.utilities import awslambda
-from langchain.vectorstores import LanceDB
+from langchain_community.vectorstores import LanceDB
 from langchain_core.output_parsers import StrOutputParser
 
 from langchain_core.prompts import PromptTemplate

@@ -233,6 +233,11 @@ resource "aws_iam_policy" "codepipeline_policy" {
         Resource = aws_codestarconnections_connection.github_connection.arn
       },
       {
+        "Effect": "Allow",
+        "Action": "codebuild:StartBuild",
+        "Resource": "arn:aws:codebuild:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:project/${aws_codebuild_project.document_processor_build.name}"
+      },
+      {
         Effect   = "Allow",
         Action   = [
           "s3:PutObject",
