@@ -231,6 +231,18 @@ resource "aws_iam_policy" "codepipeline_policy" {
         Effect   = "Allow"
         Action   = "codestar-connections:UseConnection"
         Resource = aws_codestarconnections_connection.github_connection.arn
+      },
+      {
+        Effect   = "Allow",
+        Action   = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket"
+        ],
+        Resource = [
+          aws_s3_bucket.artifact_bucket.arn,
+          "${aws_s3_bucket.artifact_bucket.arn}/*"
+        ]
       }
     ]
   })
