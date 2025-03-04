@@ -234,7 +234,7 @@ resource "aws_iam_policy" "codepipeline_policy" {
       },
       {
         "Effect": "Allow",
-        "Action": "codebuild:StartBuild",
+        "Action": ["codebuild:StartBuild","codebuild:BatchGetBuilds"],
         "Resource": "arn:aws:codebuild:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:project/${aws_codebuild_project.document_processor_build.name}"
       },
       {
