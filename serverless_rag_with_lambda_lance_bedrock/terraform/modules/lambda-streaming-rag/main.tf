@@ -16,7 +16,7 @@ resource "null_resource" "trigger_codebuild" {
 resource "aws_lambda_function" "document_processor_function" {
   function_name = var.function_name
   role          = aws_iam_role.document_processor_role.arn
-  runtime = "nodejs18.x"   # Ensure Lambda runtime supports ES Modules
+  runtime = "nodejs20.x"   # Ensure Lambda runtime supports ES Modules
   handler = "index.handler"  # Ensure this matches the exported function in index.mjs
   package_type  = "Zip"
   timeout       = 900

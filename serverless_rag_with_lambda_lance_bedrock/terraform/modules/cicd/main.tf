@@ -116,7 +116,7 @@ phases:
 
 artifacts:
   files:
-    - lambda_function.zip
+    - serverless_rag_with_lambda_lance_bedrock/rag_lambda/mjs/lambda_function.zip
 EOT
 
   }
@@ -218,6 +218,28 @@ resource "aws_iam_role" "codepipeline_role" {
       }
     ]
   })
+}
+
+resource "aws_iam_policy" "codepipeline_policy" {
+  name        = "codepipeline-policy"
+  description = "Policy for CodePipeline to access CodeStar Connections"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "codestar-connections:UseConnection"
+        Resource = aws_codestarconnections_connection.github_connection.arn
+      }
+    ]
+  })
+}
+
+
+resource "aws_iam_role_policy_attachment" "codepipeline_policy_attachment" {
+  role       = aws_iam_role.codepipeline_role.name
+  policy_arn = aws_iam_policy.codepipeline_policy.arn
 }
 
 resource "aws_codepipeline" "document_processor_pipeline" {
