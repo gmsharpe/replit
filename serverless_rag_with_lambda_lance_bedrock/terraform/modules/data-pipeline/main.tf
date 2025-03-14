@@ -19,6 +19,13 @@ resource "aws_iam_role" "document_processor_role" {
         Principal = {
           Service = "lambda.amazonaws.com"
         }
+      },
+      {
+        "Effect" = "Allow"
+        "Principal" = {
+          "AWS" = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/${data.aws_caller_identity.current.user_id}"
+        }
+        "Action" = "sts:AssumeRole"
       }
     ]
   })

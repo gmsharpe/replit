@@ -42,7 +42,7 @@ loader = PyPDFDirectoryLoader("./docs/")
 docs = loader.load()
 docs = text_splitter.split_documents(docs)
 
-s3_bucket_name = ""
+s3_bucket_name = "streaming-rag-on-lambda-documents-us-west-2-736682772784"
 LanceDB.from_documents(docs, embeddings, uri='s3://' + s3_bucket_name + '/doc_table/', table_name="doc_table")
 
 # sync folder with S3
