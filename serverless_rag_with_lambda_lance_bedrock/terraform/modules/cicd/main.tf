@@ -137,7 +137,8 @@ phases:
       - echo "Packaging Lambda function..."
       - cp index.py package/
       - cd package
-      - zip -r ../lambda_function.zip .
+      - zip -r lambda_function.zip .
+      - mv lambda_function.zip ../
 
   post_build:
     commands:
