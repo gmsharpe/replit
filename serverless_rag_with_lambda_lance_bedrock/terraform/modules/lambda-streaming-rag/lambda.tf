@@ -28,6 +28,12 @@ resource "null_resource" "trigger_codebuild" {
   }
 }
 
+resource "aws_lambda_layer_version" "lambda_dependencies" {
+  layer_name          = "lambda_dependencies_layer"
+  s3_bucket           = aws_s3_bucket.artifact_bucket.id
+  s3_key              = "lambda_layer.zip"
+  compatible_runtimes = ["python3.11"]
+}
 
 resource "aws_lambda_function" "document_processor_function" {
   function_name = var.function_name
@@ -39,8 +45,12 @@ resource "aws_lambda_function" "document_processor_function" {
   memory_size   = 1024
   architectures = ["x86_64"]
 
-  s3_bucket = var.artifact_bucket_id
+  s3_bucket = aws_s3_bucket.artifact_bucket.id
   s3_key    = "lambda_function.zip"
+
+  layers = [
+    aws_lambda_layer_version.lambda_dependencies.arn
+  ]
 
   environment {
     variables = {
@@ -52,9 +62,6 @@ resource "aws_lambda_function" "document_processor_function" {
 
   depends_on = [null_resource.trigger_codebuild]
 }
-
-
-
 
 resource "aws_s3_bucket" "document_bucket" {
   #bucket = "${var.stack_name}-documents-${data.aws_region.current.name}-${data.aws_caller_identity.current.account_id}"
