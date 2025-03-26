@@ -191,3 +191,5 @@ cython_debug/
 **/serverless_rag_with_lambda_lance_bedrock/serverless_rag_with_lambda_lance_bedrock/**
 
 **.tfvars
+
+**/node_modules/**

@@ -78,14 +78,8 @@ resource "aws_iam_role_policy_attachment" "codebuild_custom_policy" {
   policy_arn = aws_iam_policy.codebuild_policy.arn
 }
 
-resource "aws_codebuild_project" "document_processor_build" {
-  name         = "document-processor-build"
-  service_role = aws_iam_role.codebuild_role.arn
-
-  source {
-    type     = "GITHUB"
-    location = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    buildspec = <<-EOT
+locals {
+  build_spec_nodejs = <<-EOT
 version: 0.2
 
 phases:
@@ -119,6 +113,52 @@ artifacts:
     - serverless_rag_with_lambda_lance_bedrock/rag_lambda/mjs/lambda_function.zip
 EOT
 
+  build_spec_python = <<-EOT
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+
+  pre_build:
+    commands:
+      - echo "Current working directory:"
+      - pwd
+      - cd ${var.lambda_source_path}
+      - echo "Installing Python dependencies..."
+      - pip install -r requirements.txt -t ./package
+
+  build:
+    commands:
+      - echo "Checking required files..."
+      - if [ -f index.py ]; then echo "index.py exists"; else echo "index.py missing!"; exit 1; fi
+      - if [ -d package ]; then echo "Dependencies folder exists"; else echo "Dependencies folder missing!"; exit 1; fi
+      - echo "Packaging Lambda function..."
+      - cp index.py package/
+      - cd package
+      - zip -r ../lambda_function.zip .
+
+  post_build:
+    commands:
+      - echo "Uploading artifact to S3..."
+      - aws s3 cp ../lambda_function.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_function.zip --region ${data.aws_region.current.name}
+
+artifacts:
+  files:
+    - lambda_function.zip
+EOT
+
+}
+
+resource "aws_codebuild_project" "document_processor_build" {
+  name         = "document-processor-build"
+  service_role = aws_iam_role.codebuild_role.arn
+
+  source {
+    type      = "GITHUB"
+    location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
+    buildspec = local.build_spec_python
   }
 
   artifacts {
@@ -154,7 +194,7 @@ resource "aws_cloudwatch_event_rule" "trigger_codebuild" {
   description = "Trigger CodeBuild when CodePipeline is updated"
 
   event_pattern = jsonencode({
-    source      = ["aws.codepipeline"],
+    source = ["aws.codepipeline"],
     detail-type = ["CodePipeline Pipeline Execution State Change"],
     detail = {
       state = ["STARTED"]
@@ -181,8 +221,8 @@ resource "aws_iam_role" "eventbridge_role" {
 }
 
 resource "aws_iam_role_policy" "eventbridge_codebuild_policy" {
-  name   = "eventbridge-codebuild-policy"
-  role   = aws_iam_role.eventbridge_role.id
+  name = "eventbridge-codebuild-policy"
+  role = aws_iam_role.eventbridge_role.id
 
   policy = jsonencode({
     Version = "2012-10-17",
@@ -198,9 +238,9 @@ resource "aws_iam_role_policy" "eventbridge_codebuild_policy" {
 
 
 resource "aws_cloudwatch_event_target" "codebuild_target" {
-  rule      = aws_cloudwatch_event_rule.trigger_codebuild.name
-  arn       = aws_codebuild_project.document_processor_build.arn
-  role_arn  = aws_iam_role.eventbridge_role.arn
+  rule     = aws_cloudwatch_event_rule.trigger_codebuild.name
+  arn      = aws_codebuild_project.document_processor_build.arn
+  role_arn = aws_iam_role.eventbridge_role.arn
 }
 
 resource "aws_iam_role" "codepipeline_role" {
@@ -233,13 +273,13 @@ resource "aws_iam_policy" "codepipeline_policy" {
         Resource = aws_codestarconnections_connection.github_connection.arn
       },
       {
-        "Effect": "Allow",
-        "Action": ["codebuild:StartBuild","codebuild:BatchGetBuilds"],
-        "Resource": "arn:aws:codebuild:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:project/${aws_codebuild_project.document_processor_build.name}"
+        "Effect" : "Allow",
+        "Action" : ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
+        "Resource" : "arn:aws:codebuild:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:project/${aws_codebuild_project.document_processor_build.name}"
       },
       {
-        Effect   = "Allow",
-        Action   = [
+        Effect = "Allow",
+        Action = [
           "s3:PutObject",
           "s3:GetObject",
           "s3:ListBucket"
@@ -276,9 +316,9 @@ resource "aws_codepipeline" "document_processor_pipeline" {
       provider = "CodeStarSourceConnection"
       version  = "1"
       configuration = {
-        ConnectionArn   = aws_codestarconnections_connection.github_connection.arn
+        ConnectionArn    = aws_codestarconnections_connection.github_connection.arn
         FullRepositoryId = "${var.github_owner}/${var.github_repo}"
-        BranchName      = var.github_branch
+        BranchName       = var.github_branch
       }
       output_artifacts = ["SourceArtifact"]
     }

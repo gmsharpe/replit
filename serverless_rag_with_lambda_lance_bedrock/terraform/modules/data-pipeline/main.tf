@@ -5,6 +5,9 @@ provider "aws" {
 
 resource "aws_s3_bucket" "document_bucket" {
   bucket = "${var.stack_name}-${data.aws_region.current.name}-${data.aws_caller_identity.current.account_id}"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_iam_role" "document_processor_role" {
