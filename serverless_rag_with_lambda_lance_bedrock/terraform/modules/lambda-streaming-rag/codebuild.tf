@@ -25,7 +25,7 @@ phases:
 
   post_build:
     commands:
-      - aws s3 cp lambda_layer.zip s3://$ARTIFACT_BUCKET/lambda_layer.zip --region ${data.aws_region.current.name}
+      - aws s3 cp lambda_layer.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer.zip --region ${data.aws_region.current.name}
 
 artifacts:
   files:
@@ -47,7 +47,7 @@ phases:
 
   post_build:
     commands:
-      - aws s3 cp lambda_function.zip s3://$ARTIFACT_BUCKET/lambda_function.zip --region ${data.aws_region.current.name}
+      - aws s3 cp lambda_function.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_function.zip --region ${data.aws_region.current.name}
 
 artifacts:
   files:

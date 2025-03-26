@@ -33,6 +33,19 @@ resource "aws_iam_policy" "codebuild_policy" {
           "codebuild:BatchGetBuilds"
         ]
         Resource = "*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "lambda:CreateFunction",
+          "lambda:UpdateFunctionConfiguration",
+          "lambda:UpdateFunctionCode",
+          "lambda:PublishVersion",
+          "lambda:PublishLayerVersion",
+          "lambda:GetLayerVersion",
+          "lambda:DeleteLayerVersion"
+        ],
+        "Resource": "*"
       }
     ]
   })
@@ -125,7 +138,10 @@ resource "aws_iam_policy" "codepipeline_policy" {
       {
         "Effect" : "Allow",
         "Action" : ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
-        "Resource" : "arn:aws:codebuild:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:project/${aws_codebuild_project.document_processor_build.name}"
+        "Resource" : [
+          "arn:aws:codebuild:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:project/${aws_codebuild_project.document_processor_build.name}",
+          aws_codebuild_project.lambda_layer_build.arn
+        ]
       },
       {
         Effect = "Allow",
