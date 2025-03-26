@@ -19,6 +19,8 @@ phases:
       - |
         aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt previous_hash.txt || echo "no previous hash found"
       - PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
+      - echo "Current hash: $CURRENT_HASH"
+      - echo "Previous hash: $PREVIOUS_HASH"
 
   build:
     commands:
@@ -34,11 +36,10 @@ phases:
           aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt
         else
           echo "No changes in requirements, skipping lambda layer build."
-          aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer.zip ./lambda_layer.zip
+          aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip ./lambda_layer.zip
         fi
 artifacts:
-  files:
-    - lambda_layer.zip
+  files: []
 cache:
   paths:
     - '/root/.cache/pip/**/*'
