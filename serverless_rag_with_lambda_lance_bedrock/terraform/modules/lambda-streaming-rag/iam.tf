@@ -35,8 +35,8 @@ resource "aws_iam_policy" "codebuild_policy" {
         Resource = "*"
       },
       {
-        "Effect": "Allow",
-        "Action": [
+        "Effect" : "Allow",
+        "Action" : [
           "lambda:CreateFunction",
           "lambda:UpdateFunctionConfiguration",
           "lambda:UpdateFunctionCode",
@@ -45,7 +45,7 @@ resource "aws_iam_policy" "codebuild_policy" {
           "lambda:GetLayerVersion",
           "lambda:DeleteLayerVersion"
         ],
-        "Resource": "*"
+        "Resource" : "*"
       }
     ]
   })
@@ -139,8 +139,11 @@ resource "aws_iam_policy" "codepipeline_policy" {
         "Effect" : "Allow",
         "Action" : ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
         "Resource" : [
-          "arn:aws:codebuild:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:project/${aws_codebuild_project.document_processor_build.name}",
-          aws_codebuild_project.lambda_layer_build.arn
+          aws_codebuild_project.document_processor_build.arn,
+          aws_codebuild_project.lambda_layer_build.arn,
+          aws_codebuild_project.lambda_function_deploy.arn,
+          aws_codebuild_project.lambda_layer_deploy.arn
+
         ]
       },
       {

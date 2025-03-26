@@ -17,19 +17,34 @@ phases:
     runtime-versions:
       python: 3.11
 
+  pre_build:
+    commands:
+      - CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt | cut -d' ' -f1)
+      - |
+        aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt previous_hash.txt || echo "no previous hash found"
+      - PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
+
   build:
     commands:
-      - mkdir python
-      - pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt -t ./python
-      - zip -r lambda_layer.zip python
-
-  post_build:
-    commands:
-      - aws s3 cp lambda_layer.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
-
+      - |
+        if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
+          echo "Requirements changed, building lambda layer."
+          mkdir python
+          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt -t ./python
+          zip -r lambda_layer.zip python
+          aws s3 cp lambda_layer.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
+          aws lambda publish-layer-version --layer-name custom_lambda_layer --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=${aws_s3_object.layer_zip_upload.key} --compatible-runtimes python3.11
+          echo "$CURRENT_HASH" > requirements_hash.txt
+          aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt
+        else
+          echo "No changes in requirements, skipping lambda layer build."
+        fi
 artifacts:
   files:
     - lambda_layer.zip
+cache:
+  paths:
+    - '/root/.cache/pip/**/*'
 EOT
 
   build_spec_lambda_function_artifact = <<-EOT
@@ -241,20 +256,20 @@ resource "aws_codepipeline" "document_processor_pipeline" {
     }
   }
 
-  stage {
-    name = "DeployLambdaLayer"
-    action {
-      name     = "CodeBuild"
-      category = "Build"
-      owner    = "AWS"
-      provider = "CodeBuild"
-      version  = "1"
-      input_artifacts = ["LambdaLayerBuildArtifact"]
-      configuration = {
-        ProjectName = aws_codebuild_project.lambda_layer_deploy.name
-      }
-    }
-  }
+  # stage {
+  #   name = "DeployLambdaLayer"
+  #   action {
+  #     name     = "CodeBuild"
+  #     category = "Build"
+  #     owner    = "AWS"
+  #     provider = "CodeBuild"
+  #     version  = "1"
+  #     input_artifacts = ["LambdaLayerBuildArtifact"]
+  #     configuration = {
+  #       ProjectName = aws_codebuild_project.lambda_layer_deploy.name
+  #     }
+  #   }
+  # }
 
   stage {
     name = "BuildLambdaFunction"
