@@ -8,59 +8,87 @@ data "aws_caller_identity" "current" {}
 #   depends_on = [null_resource.trigger_codebuild]
 # }
 
-# resource "null_resource" "trigger_codebuild" {
-#   provisioner "local-exec" {
-#     command = <<EOF
-#     build_id=$(aws codebuild start-build --project-name ${var.document_processor_build_name} --query 'build.id' --output text)
-#     aws codebuild batch-get-builds --ids $build_id --query 'builds[0].buildStatus' --output text
-#     status="IN_PROGRESS"
-#     while [ "$status" == "IN_PROGRESS" ]; do
-#       echo "Waiting for CodeBuild job completion..."
-#       sleep 10
-#       status=$(aws codebuild batch-get-builds --ids $build_id --query 'builds[0].buildStatus' --output text)
-#     done
-#
-#     if [ "$status" != "SUCCEEDED" ]; then
-#       echo "CodeBuild failed with status: $status"
-#       exit 1
-#     fi
-#     EOF
-#   }
-# }
-#
+
+# Zip the Python directory structure required by Lambda layers
+data "archive_file" "layer_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/empty_layer_src/"
+  output_path = "${path.module}/lambda_layer.zip"
+}
+
+# Upload zipped layer to S3
+resource "aws_s3_object" "layer_zip_upload" {
+  bucket = aws_s3_bucket.artifact_bucket.id
+  key    = "lambda_layer/lambda_layer.zip"
+  source = data.archive_file.layer_zip.output_path
+  etag   = filemd5(data.archive_file.layer_zip.output_path)
+}
+
+# Lambda Layer from S3
+resource "aws_lambda_layer_version" "empty_layer" {
+  layer_name          = "document_processor_layer"
+  s3_bucket           = aws_s3_bucket.artifact_bucket.id
+  s3_key              = aws_s3_object.layer_zip_upload.key
+  compatible_runtimes = ["python3.11"]
+  source_code_hash    = data.archive_file.layer_zip.output_base64sha256
+}
+
 # resource "aws_lambda_layer_version" "lambda_dependencies" {
 #   layer_name          = "lambda_dependencies_layer"
 #   s3_bucket           = aws_s3_bucket.artifact_bucket.id
 #   s3_key              = "lambda_layer.zip"
 #   compatible_runtimes = ["python3.11"]
 # }
-#
-# resource "aws_lambda_function" "document_processor_function" {
-#   function_name = var.function_name
-#   role          = aws_iam_role.document_processor_role.arn
-#   runtime       = "python3.11"
-#   handler       = "index.handler"
-#   package_type  = "Zip"
-#   timeout       = 900
-#   memory_size   = 1024
-#   architectures = ["x86_64"]
-#
-#   s3_bucket = aws_s3_bucket.artifact_bucket.id
-#   s3_key    = "lambda_function.zip"
-#
-#   layers = [
-#     aws_lambda_layer_version.lambda_dependencies.arn
-#   ]
-#
-#   environment {
-#     variables = {
-#       s3BucketName = aws_s3_bucket.document_bucket.id
-#       region       = data.aws_region.current.name
-#       lanceDbTable = var.document_table_name
-#     }
-#   }
-#
-# }
+
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  source_file = "${path.module}/empty_lambda_src/index.py" #local_file.lambda_placeholder.filename
+  output_path = "${path.module}/lambda_function.zip"
+}
+
+# Upload zip to S3
+resource "aws_s3_object" "lambda_zip_upload" {
+  bucket = aws_s3_bucket.artifact_bucket.id
+  key    = "lambda_function/lambda_function.zip"
+  source = data.archive_file.lambda_zip.output_path
+  etag   = filemd5(data.archive_file.lambda_zip.output_path)
+  depends_on = [data.archive_file.lambda_zip]
+}
+
+resource "aws_lambda_function" "document_processor_function" {
+  function_name = var.function_name
+  role          = aws_iam_role.document_processor_role.arn
+  runtime       = "python3.11"
+  handler       = "index.handler"
+  package_type  = "Zip"
+  timeout       = 900
+  memory_size   = 1024
+  architectures = ["x86_64"]
+
+  s3_bucket = aws_s3_bucket.artifact_bucket.id
+  s3_key    = aws_s3_object.lambda_zip_upload.key
+
+  # layers = [
+  #   aws_lambda_layer_version.lambda_dependencies.arn
+  # ]
+
+  environment {
+    variables = {
+      s3BucketName = aws_s3_bucket.document_bucket.id
+      region       = data.aws_region.current.name
+      lanceDbTable = var.document_table_name
+    }
+  }
+
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+
+  lifecycle {
+    ignore_changes = [source_code_hash]
+  }
+
+  depends_on = [aws_s3_object.lambda_zip_upload]
+
+}
 
 resource "aws_s3_bucket" "document_bucket" {
   #bucket = "${var.stack_name}-documents-${data.aws_region.current.name}-${data.aws_caller_identity.current.account_id}"

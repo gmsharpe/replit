@@ -9,7 +9,7 @@ resource "aws_codestarconnections_connection" "github_connection" {
 
 locals {
 
-  build_spec_layer = <<-EOT
+  build_spec_layer_artifact = <<-EOT
 version: 0.2
 
 phases:
@@ -25,21 +25,17 @@ phases:
 
   post_build:
     commands:
-      - aws s3 cp lambda_layer.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer.zip --region ${data.aws_region.current.name}
+      - aws s3 cp lambda_layer.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
 
 artifacts:
   files:
     - lambda_layer.zip
 EOT
 
-  build_spec_lambda_function = <<-EOT
+  build_spec_lambda_function_artifact = <<-EOT
 version: 0.2
 
 phases:
-  install:
-    runtime-versions:
-      python: 3.11
-
   build:
     commands:
       - cp serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/index.py ./
@@ -47,7 +43,7 @@ phases:
 
   post_build:
     commands:
-      - aws s3 cp lambda_function.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_function.zip --region ${data.aws_region.current.name}
+      - aws s3 cp lambda_function.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_function/lambda_function.zip --region ${data.aws_region.current.name}
 
 artifacts:
   files:
@@ -63,12 +59,18 @@ resource "aws_codebuild_project" "lambda_layer_build" {
   source {
     type      = "GITHUB"
     location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    buildspec = local.build_spec_layer
+    buildspec = local.build_spec_layer_artifact
   }
 
   artifacts {
     type     = "S3"
     location = aws_s3_bucket.artifact_bucket.id
+    name = "lambda_layer"
+  }
+
+  cache {
+    type = "S3"
+    location = "${aws_s3_bucket.artifact_bucket.id}/lambda_layer_cache"
   }
 
   environment {
@@ -85,12 +87,13 @@ resource "aws_codebuild_project" "document_processor_build" {
   source {
     type      = "GITHUB"
     location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    buildspec = local.build_spec_lambda_function
+    buildspec = local.build_spec_lambda_function_artifact
   }
 
   artifacts {
     type     = "S3"
     location = aws_s3_bucket.artifact_bucket.id
+    name = "lambda_function"
   }
 
   environment {
