@@ -62,15 +62,6 @@ artifacts:
     - lambda_function.zip
 EOT
 
-  deploy_layer_build_spec = <<-EOT
-version: 0.2
-
-phases:
-  build:
-    commands:
-      - aws lambda publish-layer-version --layer-name custom_lambda_layer --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=${aws_s3_object.layer_zip_upload.key} --compatible-runtimes python3.11
-EOT
-
   deploy_lambda_build_spec = <<-EOT
 version: 0.2
 
@@ -101,27 +92,6 @@ resource "aws_codebuild_project" "lambda_layer_build" {
   cache {
     type = "S3"
     location = "${aws_s3_bucket.artifact_bucket.id}/lambda_layer_cache"
-  }
-
-  environment {
-    compute_type    = "BUILD_GENERAL1_SMALL"
-    image           = "aws/codebuild/standard:5.0"
-    type            = "LINUX_CONTAINER"
-  }
-}
-
-resource "aws_codebuild_project" "lambda_layer_deploy" {
-  name         = "lambda-layer-deploy"
-  service_role = aws_iam_role.codebuild_role.arn
-
-  source {
-    type      = "GITHUB"
-    location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    buildspec = local.deploy_layer_build_spec
-  }
-
-  artifacts {
-    type     = "NO_ARTIFACTS"
   }
 
   environment {
@@ -253,21 +223,6 @@ resource "aws_codepipeline" "document_processor_pipeline" {
     }
   }
 
-  # stage {
-  #   name = "DeployLambdaLayer"
-  #   action {
-  #     name     = "CodeBuild"
-  #     category = "Build"
-  #     owner    = "AWS"
-  #     provider = "CodeBuild"
-  #     version  = "1"
-  #     input_artifacts = ["LambdaLayerBuildArtifact"]
-  #     configuration = {
-  #       ProjectName = aws_codebuild_project.lambda_layer_deploy.name
-  #     }
-  #   }
-  # }
-
   stage {
     name = "BuildLambdaFunction"
     action {
@@ -294,7 +249,7 @@ resource "aws_codepipeline" "document_processor_pipeline" {
       version  = "1"
       input_artifacts = ["SourceArtifact"]
       configuration = {
-        ProjectName = aws_codebuild_project.document_processor_build.name
+        ProjectName = aws_codebuild_project.lambda_function_deploy.name
       }
     }
   }

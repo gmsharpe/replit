@@ -74,9 +74,9 @@ resource "aws_lambda_function" "document_processor_function" {
   s3_bucket = aws_s3_bucket.artifact_bucket.id
   s3_key    = aws_s3_object.lambda_zip_upload.key
 
-  # layers = [
-  #   aws_lambda_layer_version.lambda_dependencies.arn
-  # ]
+  layers = [
+    aws_lambda_layer_version.empty_layer.arn
+  ]
 
   environment {
     variables = {
