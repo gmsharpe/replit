@@ -22,6 +22,9 @@ resource "aws_s3_object" "layer_zip_upload" {
   key    = "lambda_layer/lambda_layer.zip"
   source = data.archive_file.layer_zip.output_path
   etag   = filemd5(data.archive_file.layer_zip.output_path)
+  lifecycle {
+    ignore_changes = [etag]
+  }
 }
 
 # Lambda Layer from S3
@@ -53,6 +56,9 @@ resource "aws_s3_object" "lambda_zip_upload" {
   source = data.archive_file.lambda_zip.output_path
   etag   = filemd5(data.archive_file.lambda_zip.output_path)
   depends_on = [data.archive_file.lambda_zip]
+  lifecycle {
+    ignore_changes = [etag]
+  }
 }
 
 resource "aws_lambda_function" "document_processor_function" {
