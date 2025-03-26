@@ -13,7 +13,7 @@ locals {
 version: 0.2
 
 phases:
-  pre_build:
+  build:
     commands:
       - CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt | cut -d' ' -f1)
       - |
@@ -21,9 +21,6 @@ phases:
       - PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
       - echo "Current hash: $CURRENT_HASH"
       - echo "Previous hash: $PREVIOUS_HASH"
-
-  build:
-    commands:
       - |
         if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
           echo "Requirements changed, building lambda layer."
