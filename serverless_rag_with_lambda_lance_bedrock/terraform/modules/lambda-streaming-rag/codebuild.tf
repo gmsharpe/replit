@@ -15,13 +15,12 @@ version: 0.2
 phases:
   build:
     commands:
-      - CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt | cut -d' ' -f1)
       - |
+        CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt | cut -d' ' -f1)
         aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt previous_hash.txt || echo "no previous hash found"
-      - PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
-      - echo "Current hash: $CURRENT_HASH"
-      - echo "Previous hash: $PREVIOUS_HASH"
-      - |
+        PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
+        echo "Current hash: $CURRENT_HASH"
+        echo "Previous hash: $PREVIOUS_HASH"
         if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
           echo "Requirements changed, building lambda layer."
           mkdir python
@@ -35,6 +34,7 @@ phases:
           echo "No changes in requirements, skipping lambda layer build."
           aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip ./lambda_layer.zip
         fi
+
 artifacts:
   files: []
 cache:
