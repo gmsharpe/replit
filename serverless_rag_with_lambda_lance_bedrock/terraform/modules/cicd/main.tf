@@ -123,27 +123,20 @@ phases:
 
   pre_build:
     commands:
-      - echo "Current working directory:"
-      - pwd
-      - cd ${var.lambda_source_path}
-      - echo "Installing Python dependencies..."
+      - cd serverless_rag_with_lambda_lance_bedrock/rag_lambda/python
       - pip install -r requirements.txt -t ./package
 
   build:
     commands:
-      - echo "Checking required files..."
-      - if [ -f index.py ]; then echo "index.py exists"; else echo "index.py missing!"; exit 1; fi
-      - if [ -d package ]; then echo "Dependencies folder exists"; else echo "Dependencies folder missing!"; exit 1; fi
-      - echo "Packaging Lambda function..."
       - cp index.py package/
       - cd package
       - zip -r lambda_function.zip .
-      - mv lambda_function.zip ../
+      - mv lambda_function.zip $$CODEBUILD_SRC_DIR/lambda_function.zip  # Move to absolute root build directory
 
   post_build:
     commands:
       - echo "Uploading artifact to S3..."
-      - aws s3 cp ../lambda_function.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_function.zip --region ${data.aws_region.current.name}
+      - aws s3 cp $$CODEBUILD_SRC_DIR/lambda_function.zip s3://$$ARTIFACT_BUCKET/lambda_function.zip --region ${data.aws_region.current.name}
 
 artifacts:
   files:
