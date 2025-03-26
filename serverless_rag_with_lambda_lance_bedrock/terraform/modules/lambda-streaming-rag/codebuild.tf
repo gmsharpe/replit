@@ -163,7 +163,7 @@ resource "aws_codepipeline" "document_processor_pipeline" {
   }
 
   stage {
-    name = "Build"
+    name = "BuildLambdaLayer"
     action {
       name     = "CodeBuild"
       category = "Build"
@@ -171,7 +171,23 @@ resource "aws_codepipeline" "document_processor_pipeline" {
       provider = "CodeBuild"
       version  = "1"
       input_artifacts = ["SourceArtifact"]
-      output_artifacts = ["BuildArtifact"]
+      output_artifacts = ["LambdaLayerBuildArtifact"]
+      configuration = {
+        ProjectName = aws_codebuild_project.lambda_layer_build.name
+      }
+    }
+  }
+
+  stage {
+    name = "BuildLambdaFunction"
+    action {
+      name     = "CodeBuild"
+      category = "Build"
+      owner    = "AWS"
+      provider = "CodeBuild"
+      version  = "1"
+      input_artifacts = ["SourceArtifact"]
+      output_artifacts = ["LambdaFunctionBuildArtifact"]
       configuration = {
         ProjectName = aws_codebuild_project.document_processor_build.name
       }

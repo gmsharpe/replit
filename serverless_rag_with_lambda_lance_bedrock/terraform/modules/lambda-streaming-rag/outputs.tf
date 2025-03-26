@@ -1,7 +1,7 @@
-output "document_processor_function_arn" {
-  description = "Lambda Function ARN"
-  value       = aws_lambda_function.document_processor_function.arn
-}
+# output "document_processor_function_arn" {
+#   description = "Lambda Function ARN"
+#   value       = aws_lambda_function.document_processor_function.arn
+# }
 
 output "document_processor_function_role" {
   description = "IAM Role for the Document Processor function"
