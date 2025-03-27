@@ -2,7 +2,6 @@ import json
 import os
 
 import boto3
-from botocore.exceptions import ClientError
 from lancedb import connect_async
 from langchain_aws import BedrockEmbeddings, ChatBedrockConverse
 from langchain_community.vectorstores import LanceDB
@@ -120,7 +119,7 @@ def assume_limited_role(role_name, region='us-west-2'):
         )
         credentials = assumed_role_object['Credentials']
         print("Assumed role and obtained temporary credentials.")
-    except ClientError as e:
+    except Exception as e:
         print(f"Error assuming role: {e}")
         raise
 
