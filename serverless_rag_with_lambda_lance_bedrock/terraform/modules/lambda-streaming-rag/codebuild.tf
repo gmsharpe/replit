@@ -19,6 +19,7 @@ phases:
   build:
     commands:
       - |
+        PYTHON_VERSION="3.12"
         CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt | cut -d' ' -f1)
         aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt previous_hash.txt || echo "no previous hash found"
         PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
@@ -28,12 +29,12 @@ phases:
           echo "Requirements changed, building lambda layer."
           python3.12 -m venv create_layer
           source create_layer/bin/activate
-          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt --target ./create_layer/lib/python3.12/site-packages
+          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt --target "./create_layer/lib/python$PYTHON_VERSION/site-packages"
           mkdir python
           cp -r create_layer/lib python/
           zip -r lambda_layer.zip python
           aws s3 cp lambda_layer.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
-          aws lambda publish-layer-version --layer-name custom_lambda_layer --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=${aws_s3_object.layer_zip_upload.key} --compatible-runtimes python3.11
+          aws lambda publish-layer-version --layer-name custom_lambda_layer --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=${aws_s3_object.layer_zip_upload.key} --compatible-runtimes "python$PYTHON_VERSION"
           echo "$CURRENT_HASH" > requirements_hash.txt
           aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt
         else
