@@ -23,8 +23,11 @@ phases:
         echo "Previous hash: $PREVIOUS_HASH"
         if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
           echo "Requirements changed, building lambda layer."
+          python -m venv create_layer
+          source create_layer/bin/activate
+          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt
           mkdir python
-          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt -t ./python
+          cp -r create_layer/lib python/
           zip -r lambda_layer.zip python
           aws s3 cp lambda_layer.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
           aws lambda publish-layer-version --layer-name custom_lambda_layer --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=${aws_s3_object.layer_zip_upload.key} --compatible-runtimes python3.11
