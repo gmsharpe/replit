@@ -42,10 +42,11 @@ phases:
 
 artifacts:
   files: []
-cache:
-  paths:
-    - '/root/.cache/pip/**/*'
 EOT
+
+  # cache:
+  #  paths:
+  #    - '/root/.cache/pip/**/*'
 
   build_spec_lambda_function_artifact = <<-EOT
 version: 0.2
