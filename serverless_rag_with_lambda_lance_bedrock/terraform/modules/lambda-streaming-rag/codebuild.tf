@@ -34,7 +34,7 @@ phases:
           cp -r create_layer/lib python/
           zip -r lambda_layer.zip python
           aws s3 cp lambda_layer.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
-          aws lambda publish-layer-version --layer-name custom_lambda_layer --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=${aws_s3_object.layer_zip_upload.key} --compatible-runtimes "python$PYTHON_VERSION"
+          aws lambda publish-layer-version --layer-name ${aws_lambda_layer_version.lambda_layer.layer_name} --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=${aws_s3_object.layer_zip_upload.key} --compatible-runtimes "python$PYTHON_VERSION"
           echo "$CURRENT_HASH" > requirements_hash.txt
           aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt
         else
