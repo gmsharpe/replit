@@ -23,25 +23,17 @@ resource "aws_s3_object" "layer_zip_upload" {
   source = data.archive_file.layer_zip.output_path
   etag   = filemd5(data.archive_file.layer_zip.output_path)
   lifecycle {
+    prevent_destroy = true
     ignore_changes = [etag]
   }
 }
 
-# Lambda Layer from S3
-resource "aws_lambda_layer_version" "empty_layer" {
-  layer_name          = "document_processor_layer"
+resource "aws_lambda_layer_version" "lambda_layer" {
+  layer_name          = "lambda_dependencies_layer"
   s3_bucket           = aws_s3_bucket.artifact_bucket.id
   s3_key              = aws_s3_object.layer_zip_upload.key
-  compatible_runtimes = ["python3.11"]
-  source_code_hash    = data.archive_file.layer_zip.output_base64sha256
+  compatible_runtimes = ["python3.12"]
 }
-
-# resource "aws_lambda_layer_version" "lambda_dependencies" {
-#   layer_name          = "lambda_dependencies_layer"
-#   s3_bucket           = aws_s3_bucket.artifact_bucket.id
-#   s3_key              = "lambda_layer.zip"
-#   compatible_runtimes = ["python3.11"]
-# }
 
 data "archive_file" "lambda_zip" {
   type        = "zip"
@@ -57,6 +49,7 @@ resource "aws_s3_object" "lambda_zip_upload" {
   etag   = filemd5(data.archive_file.lambda_zip.output_path)
   depends_on = [data.archive_file.lambda_zip]
   lifecycle {
+    prevent_destroy = true
     ignore_changes = [etag]
   }
 }
@@ -75,7 +68,7 @@ resource "aws_lambda_function" "document_processor_function" {
   s3_key    = aws_s3_object.lambda_zip_upload.key
 
   layers = [
-    aws_lambda_layer_version.empty_layer.arn
+    aws_lambda_layer_version.lambda_layer.arn
   ]
 
   environment {
