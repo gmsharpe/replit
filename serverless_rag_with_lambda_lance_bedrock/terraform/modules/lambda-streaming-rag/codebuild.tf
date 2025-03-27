@@ -26,9 +26,9 @@ phases:
         echo "Previous hash: $PREVIOUS_HASH"
         if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
           echo "Requirements changed, building lambda layer."
-          python -m venv create_layer
+          python3.12 -m venv create_layer
           source create_layer/bin/activate
-          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt 
+          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt --target ./create_layer/lib/python3.12/site-packages
           mkdir python
           cp -r create_layer/lib python/
           zip -r lambda_layer.zip python
@@ -38,7 +38,6 @@ phases:
           aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt
         else
           echo "No changes in requirements, skipping lambda layer build."
-          aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip ./lambda_layer.zip
         fi
 
 artifacts:
