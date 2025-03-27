@@ -26,6 +26,7 @@ phases:
         echo "Previous hash: $PREVIOUS_HASH"
         if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
           echo "Requirements changed, building lambda layer."
+          echo "The requirements are: $(cat serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt)"
           python3.12 -m venv create_layer
           source create_layer/bin/activate
           pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt --target ./create_layer/lib/python3.12/site-packages
