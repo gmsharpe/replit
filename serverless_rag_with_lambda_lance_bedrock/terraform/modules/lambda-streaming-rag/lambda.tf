@@ -64,7 +64,7 @@ resource "aws_s3_object" "lambda_zip_upload" {
 resource "aws_lambda_function" "document_processor_function" {
   function_name = var.function_name
   role          = aws_iam_role.document_processor_role.arn
-  runtime       = "python3.11"
+  runtime       = "python3.12"
   handler       = "index.handler"
   package_type  = "Zip"
   timeout       = 900
