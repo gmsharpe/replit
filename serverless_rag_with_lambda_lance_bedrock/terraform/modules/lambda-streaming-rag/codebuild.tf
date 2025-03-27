@@ -12,42 +12,61 @@ locals {
   build_spec_layer_artifact = <<-EOT
 version: 0.2
 
+env:
+  variables:
+    LAYER_NAME: "dev" # Set dynamically to "dev" or "prod"
+
 phases:
   install:
     runtime-versions:
       python: 3.12
+
   build:
     commands:
       - |
-        CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt | cut -d' ' -f1)
-        aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt previous_hash.txt || echo "no previous hash found"
+        echo "Starting Lambda Layer build for environment: $LAYER_NAME"
+        CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$LAYER_NAME_layer_requirements.txt | cut -d' ' -f1)
+        aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/$LAYER_NAME/requirements_hash.txt previous_hash.txt || echo "No previous hash found"
         PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
+
         echo "Current hash: $CURRENT_HASH"
         echo "Previous hash: $PREVIOUS_HASH"
+
         if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
-          echo "Requirements changed, building lambda layer."
-          echo "The requirements are: $(cat serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt)"
+          echo "Requirements changed, building lambda layer for $LAYER_NAME."
+          echo "The requirements are: $(cat serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$LAYER_NAME_layer_requirements.txt)"
+
           python3.12 -m venv create_layer
           source create_layer/bin/activate
-          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt --target ./create_layer/lib/python3.12/site-packages
-          mkdir python
+
+          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$LAYER_NAME_layer_requirements.txt --target ./create_layer/lib/python3.12/site-packages
+          mkdir -p python
           cp -r create_layer/lib python/
-          zip -r lambda_layer.zip python
-          aws s3 cp lambda_layer.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
-          aws lambda publish-layer-version --layer-name ${aws_lambda_layer_version.lambda_layer.layer_name} --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=${aws_s3_object.layer_zip_upload.key} --compatible-runtimes python3.12
+
+          zip -r lambda_layer_$LAYER_NAME.zip python
+          aws s3 cp lambda_layer_$LAYER_NAME.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/$LAMBDA_LAYER/lambda_layer.zip --region ${data.aws_region.current.name}
+
+          aws lambda publish-layer-version \
+            --layer-name $LAYER_NAME \
+            --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=lambda_layer/$LAYER_NAME/lambda_layer.zip \
+            --compatible-runtimes python3.12
+
           echo "$CURRENT_HASH" > requirements_hash.txt
-          aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/requirements_hash.txt
+          aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/$LAYER_NAME/requirements_hash.txt
+
         else
-          echo "No changes in requirements, skipping lambda layer build."
+          echo "No changes in requirements for $LAYER_NAME, skipping lambda layer build."
         fi
 
 artifacts:
   files: []
+
+cache:
+ paths:
+   - '/root/.cache/pip/**/*'
 EOT
 
-  # cache:
-  #  paths:
-  #    - '/root/.cache/pip/**/*'
+
 
   build_spec_lambda_function_artifact = <<-EOT
 version: 0.2
@@ -78,8 +97,8 @@ EOT
 
 }
 
-resource "aws_codebuild_project" "lambda_layer_build" {
-  name         = "lambda-layer-build"
+resource "aws_codebuild_project" "langchain_lambda_layer_build" {
+  name         = "langchain-lambda-layer-build"
   service_role = aws_iam_role.codebuild_role.arn
 
   source {
@@ -91,18 +110,56 @@ resource "aws_codebuild_project" "lambda_layer_build" {
   artifacts {
     type     = "S3"
     location = aws_s3_bucket.artifact_bucket.id
-    name = "lambda_layer"
+    name = "lambda_layer/langchain"
   }
 
   cache {
     type = "S3"
-    location = "${aws_s3_bucket.artifact_bucket.id}/lambda_layer_cache"
+    location = "${aws_s3_bucket.artifact_bucket.id}/langchain/lambda_layer_cache"
   }
 
   environment {
     compute_type    = "BUILD_GENERAL1_SMALL"
     image           = "aws/codebuild/standard:5.0"
     type            = "LINUX_CONTAINER"
+
+    environment_variable {
+      name  = "LAMBDA_LAYER"
+      value = "langchain"
+    }
+  }
+}
+
+resource "aws_codebuild_project" "lancedb_lambda_layer_build" {
+  name         = "lancedb-lambda-layer-build"
+  service_role = aws_iam_role.codebuild_role.arn
+
+  source {
+    type      = "GITHUB"
+    location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
+    buildspec = local.build_spec_layer_artifact
+  }
+
+  artifacts {
+    type     = "S3"
+    location = aws_s3_bucket.artifact_bucket.id
+    name = "lambda_layer/lancedb"
+  }
+
+  cache {
+    type = "S3"
+    location = "${aws_s3_bucket.artifact_bucket.id}/lancedb/lambda_layer_cache"
+  }
+
+  environment {
+    compute_type    = "BUILD_GENERAL1_SMALL"
+    image           = "aws/codebuild/standard:5.0"
+    type            = "LINUX_CONTAINER"
+
+    environment_variable {
+      name  = "LAMBDA_LAYER"
+      value = "lancedb"
+    }
   }
 }
 
@@ -223,7 +280,23 @@ resource "aws_codepipeline" "document_processor_pipeline" {
       input_artifacts = ["SourceArtifact"]
       output_artifacts = ["LambdaLayerBuildArtifact"]
       configuration = {
-        ProjectName = aws_codebuild_project.lambda_layer_build.name
+        ProjectName = aws_codebuild_project.langchain_lambda_layer_build.name
+      }
+    }
+  }
+
+  stage {
+    name = "BuildLambdaLayer"
+    action {
+      name     = "CodeBuild"
+      category = "Build"
+      owner    = "AWS"
+      provider = "CodeBuild"
+      version  = "1"
+      input_artifacts = ["SourceArtifact"]
+      output_artifacts = ["LambdaLayerBuildArtifact"]
+      configuration = {
+        ProjectName = aws_codebuild_project.lancedb_lambda_layer_build.name
       }
     }
   }

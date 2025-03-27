@@ -10,9 +10,9 @@ data "archive_file" "layer_zip" {
 }
 
 # Upload zipped layer to S3
-resource "aws_s3_object" "layer_zip_upload" {
+resource "aws_s3_object" "langchain_layer_zip_upload" {
   bucket = aws_s3_bucket.artifact_bucket.id
-  key    = "lambda_layer/lambda_layer.zip"
+  key    = "lambda_layer/langchain/lambda_layer.zip"
   source = data.archive_file.layer_zip.output_path
   etag   = filemd5(data.archive_file.layer_zip.output_path)
   lifecycle {
@@ -21,10 +21,28 @@ resource "aws_s3_object" "layer_zip_upload" {
   }
 }
 
-resource "aws_lambda_layer_version" "lambda_layer" {
+resource "aws_s3_object" "lancedb_layer_zip_upload" {
+  bucket = aws_s3_bucket.artifact_bucket.id
+  key    = "lambda_layer/lancedb/lambda_layer.zip"
+  source = data.archive_file.layer_zip.output_path
+  etag   = filemd5(data.archive_file.layer_zip.output_path)
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [etag]
+  }
+}
+
+resource "aws_lambda_layer_version" "lancedb_lambda_layer" {
   layer_name          = "lambda_dependencies_layer"
   s3_bucket           = aws_s3_bucket.artifact_bucket.id
-  s3_key              = aws_s3_object.layer_zip_upload.key
+  s3_key              = aws_s3_object.lancedb_layer_zip_upload.key
+  compatible_runtimes = ["python3.12"]
+}
+
+resource "aws_lambda_layer_version" "langchain_lambda_layer" {
+  layer_name          = "lambda_dependencies_layer"
+  s3_bucket           = aws_s3_bucket.artifact_bucket.id
+  s3_key              = aws_s3_object.langchain_layer_zip_upload.key
   compatible_runtimes = ["python3.12"]
 }
 
@@ -61,7 +79,8 @@ resource "aws_lambda_function" "document_processor_function" {
   s3_key    = aws_s3_object.lambda_zip_upload.key
 
   layers = [
-    aws_lambda_layer_version.lambda_layer.arn
+    aws_lambda_layer_version.lancedb_lambda_layer.arn,
+    aws_lambda_layer_version.langchain_lambda_layer.arn
   ]
 
   environment {
@@ -112,38 +131,4 @@ resource "aws_iam_role" "document_processor_role" {
       }
     ]
   })
-}
-
-resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
-  role       = aws_iam_role.document_processor_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-resource "aws_iam_policy" "document_processor_policy" {
-  name        = "document-processor-policy"
-  description = "IAM policy for the Lambda function"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["bedrock:InvokeModel"]
-        Resource = "*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:PutObject", "s3:List*","s3:DeleteObject"]
-        Resource = [
-          "${aws_s3_bucket.document_bucket.arn}/*",
-          aws_s3_bucket.document_bucket.arn
-        ]
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "document_processor_attachment" {
-  role       = aws_iam_role.document_processor_role.name
-  policy_arn = aws_iam_policy.document_processor_policy.arn
 }

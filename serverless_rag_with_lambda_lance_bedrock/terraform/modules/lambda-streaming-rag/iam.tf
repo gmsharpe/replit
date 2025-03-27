@@ -1,3 +1,38 @@
+
+resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
+  role       = aws_iam_role.document_processor_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_policy" "document_processor_policy" {
+  name        = "document-processor-policy"
+  description = "IAM policy for the Lambda function"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:List*","s3:DeleteObject"]
+        Resource = [
+          "${aws_s3_bucket.document_bucket.arn}/*",
+          aws_s3_bucket.document_bucket.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "document_processor_attachment" {
+  role       = aws_iam_role.document_processor_role.name
+  policy_arn = aws_iam_policy.document_processor_policy.arn
+}
+
 resource "aws_iam_policy" "codebuild_policy" {
   name        = "codebuild-policy"
   description = "Policy for CodeBuild to access S3, CloudWatch, and logs"
@@ -140,7 +175,8 @@ resource "aws_iam_policy" "codepipeline_policy" {
         "Action" : ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
         "Resource" : [
           aws_codebuild_project.document_processor_build.arn,
-          aws_codebuild_project.lambda_layer_build.arn,
+          aws_codebuild_project.lancedb_lambda_layer_build.arn,
+          aws_codebuild_project.langchain_lambda_layer_build.arn,
           aws_codebuild_project.lambda_function_deploy.arn
 
         ]
