@@ -2,13 +2,6 @@ data "aws_region" "current" {}
 
 data "aws_caller_identity" "current" {}
 
-# data "aws_s3_object" "lambda_zip" {
-#   bucket = var.artifact_bucket_id
-#   key    = "lambda_function.zip"
-#   depends_on = [null_resource.trigger_codebuild]
-# }
-
-
 # Zip the Python directory structure required by Lambda layers
 data "archive_file" "layer_zip" {
   type        = "zip"

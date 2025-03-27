@@ -28,7 +28,7 @@ phases:
           echo "Requirements changed, building lambda layer."
           python -m venv create_layer
           source create_layer/bin/activate
-          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt
+          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/requirements.txt 
           mkdir python
           cp -r create_layer/lib python/
           zip -r lambda_layer.zip python
