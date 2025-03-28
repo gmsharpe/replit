@@ -21,7 +21,7 @@ phases:
     commands:
       - |
         echo "Starting Lambda Layer build for environment: $LAYER_NAME"
-        CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$LAYER_NAME_layer_requirements.txt | cut -d' ' -f1)
+        CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt | cut -d' ' -f1)
         aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/$LAYER_NAME_lambda_layer/requirements_hash.txt previous_hash.txt || echo "No previous hash found"
         PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
 
@@ -30,16 +30,18 @@ phases:
 
         if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
           echo "Requirements changed, building lambda layer for $LAYER_NAME."
-          echo "The requirements are: $(cat serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$LAYER_NAME_layer_requirements.txt)"
+          echo "The requirements are: $(cat serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt)"
 
           python3.12 -m venv create_layer
           source create_layer/bin/activate
 
-          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$LAYER_NAME_layer_requirements.txt --target ./create_layer/lib/python3.12/site-packages
+          echo "Installing requirements for $LAYER_NAME using 'serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt'"
+          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt --target ./create_layer/lib/python3.12/site-packages
           mkdir -p python
           cp -r create_layer/lib python/
 
           zip -r lambda_layer_$LAYER_NAME.zip python
+          echo "Uploading lambda layer zip to S3 (S3 bucket: ${aws_s3_bucket.artifact_bucket.id}, S3 key: $LAYER_NAME_lambda_layer/lambda_layer.zip)"
           aws s3 cp lambda_layer_$LAYER_NAME.zip s3://${aws_s3_bucket.artifact_bucket.id}/$LAMBDA_LAYER_lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
 
           aws lambda publish-layer-version \
