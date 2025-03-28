@@ -26,7 +26,7 @@ phases:
       - |
         echo "Starting Lambda Layer build for environment: $LAYER_NAME"
         CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$LAYER_NAME_layer_requirements.txt | cut -d' ' -f1)
-        aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/$LAYER_NAME/requirements_hash.txt previous_hash.txt || echo "No previous hash found"
+        aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/$LAYER_NAME_lambda_layer/requirements_hash.txt previous_hash.txt || echo "No previous hash found"
         PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
 
         echo "Current hash: $CURRENT_HASH"
@@ -44,11 +44,11 @@ phases:
           cp -r create_layer/lib python/
 
           zip -r lambda_layer_$LAYER_NAME.zip python
-          aws s3 cp lambda_layer_$LAYER_NAME.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_layer/$LAMBDA_LAYER/lambda_layer.zip --region ${data.aws_region.current.name}
+          aws s3 cp lambda_layer_$LAYER_NAME.zip s3://${aws_s3_bucket.artifact_bucket.id}/$LAMBDA_LAYER_lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
 
           aws lambda publish-layer-version \
             --layer-name $LAYER_NAME \
-            --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=lambda_layer/$LAYER_NAME/lambda_layer.zip \
+            --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=$LAYER_NAME_lambda_layer/lambda_layer.zip \
             --compatible-runtimes python3.12
 
           echo "$CURRENT_HASH" > requirements_hash.txt
@@ -110,7 +110,8 @@ resource "aws_codebuild_project" "langchain_lambda_layer_build" {
   artifacts {
     type     = "S3"
     location = aws_s3_bucket.artifact_bucket.id
-    name = "lambda_layer/langchain"
+    name = "langchain_lambda_layer"
+
   }
 
   cache {
@@ -143,7 +144,7 @@ resource "aws_codebuild_project" "lancedb_lambda_layer_build" {
   artifacts {
     type     = "S3"
     location = aws_s3_bucket.artifact_bucket.id
-    name = "lambda_layer/lancedb"
+    name = "lancedb_lambda_layer"
   }
 
   cache {
@@ -270,7 +271,7 @@ resource "aws_codepipeline" "document_processor_pipeline" {
   }
 
   stage {
-    name = "BuildLambdaLayer"
+    name = "BuildLangchainLambdaLayer"
     action {
       name     = "CodeBuild"
       category = "Build"
@@ -278,7 +279,7 @@ resource "aws_codepipeline" "document_processor_pipeline" {
       provider = "CodeBuild"
       version  = "1"
       input_artifacts = ["SourceArtifact"]
-      output_artifacts = ["LambdaLayerBuildArtifact"]
+      output_artifacts = ["LangchainLambdaLayerBuildArtifact"]
       configuration = {
         ProjectName = aws_codebuild_project.langchain_lambda_layer_build.name
       }
@@ -286,7 +287,7 @@ resource "aws_codepipeline" "document_processor_pipeline" {
   }
 
   stage {
-    name = "BuildLambdaLayer"
+    name = "BuildLanceDBLambdaLayer"
     action {
       name     = "CodeBuild"
       category = "Build"
@@ -294,7 +295,7 @@ resource "aws_codepipeline" "document_processor_pipeline" {
       provider = "CodeBuild"
       version  = "1"
       input_artifacts = ["SourceArtifact"]
-      output_artifacts = ["LambdaLayerBuildArtifact"]
+      output_artifacts = ["LanceDBLambdaLayerBuildArtifact"]
       configuration = {
         ProjectName = aws_codebuild_project.lancedb_lambda_layer_build.name
       }

@@ -33,14 +33,14 @@ resource "aws_s3_object" "lancedb_layer_zip_upload" {
 }
 
 resource "aws_lambda_layer_version" "lancedb_lambda_layer" {
-  layer_name          = "lambda_dependencies_layer"
+  layer_name          = "lancedb"
   s3_bucket           = aws_s3_bucket.artifact_bucket.id
   s3_key              = aws_s3_object.lancedb_layer_zip_upload.key
   compatible_runtimes = ["python3.12"]
 }
 
 resource "aws_lambda_layer_version" "langchain_lambda_layer" {
-  layer_name          = "lambda_dependencies_layer"
+  layer_name          = "langchain"
   s3_bucket           = aws_s3_bucket.artifact_bucket.id
   s3_key              = aws_s3_object.langchain_layer_zip_upload.key
   compatible_runtimes = ["python3.12"]
