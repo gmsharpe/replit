@@ -41,16 +41,16 @@ phases:
           cp -r create_layer/lib python/
 
           zip -r lambda_layer_$LAYER_NAME.zip python
-          echo "Uploading lambda layer zip to S3 (S3 bucket: ${aws_s3_bucket.artifact_bucket.id}, S3 key: $LAYER_NAME_lambda_layer/lambda_layer.zip)"
-          aws s3 cp lambda_layer_$LAYER_NAME.zip s3://${aws_s3_bucket.artifact_bucket.id}/$LAMBDA_LAYER_lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
+          echo "Uploading lambda layer zip to S3 (S3 bucket: ${aws_s3_bucket.artifact_bucket.id}, S3 key: $${LAYER_NAME}_lambda_layer/lambda_layer.zip)"
+          aws s3 cp lambda_layer_$LAYER_NAME.zip s3://${aws_s3_bucket.artifact_bucket.id}/$${LAMBDA_LAYER}_lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
 
           aws lambda publish-layer-version \
             --layer-name $LAYER_NAME \
-            --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=$LAYER_NAME_lambda_layer/lambda_layer.zip \
+            --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=$${LAYER_NAME}_lambda_layer/lambda_layer.zip \
             --compatible-runtimes python3.12
 
           echo "$CURRENT_HASH" > requirements_hash.txt
-          aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/$LAYER_NAME/requirements_hash.txt
+          aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/$${LAYER_NAME}/requirements_hash.txt
 
         else
           echo "No changes in requirements for $LAYER_NAME, skipping lambda layer build."
