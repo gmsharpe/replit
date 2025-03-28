@@ -12,10 +12,6 @@ locals {
   build_spec_layer_artifact = <<-EOT
 version: 0.2
 
-env:
-  variables:
-    LAYER_NAME: "dev" # Set dynamically to "dev" or "prod"
-
 phases:
   install:
     runtime-versions:
@@ -125,7 +121,7 @@ resource "aws_codebuild_project" "langchain_lambda_layer_build" {
     type            = "LINUX_CONTAINER"
 
     environment_variable {
-      name  = "LAMBDA_LAYER"
+      name  = "LAYER_NAME"
       value = "langchain"
     }
   }
@@ -158,7 +154,7 @@ resource "aws_codebuild_project" "lancedb_lambda_layer_build" {
     type            = "LINUX_CONTAINER"
 
     environment_variable {
-      name  = "LAMBDA_LAYER"
+      name  = "LAYER_NAME"
       value = "lancedb"
     }
   }
