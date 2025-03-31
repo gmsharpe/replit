@@ -45,7 +45,8 @@ resource "aws_iam_policy" "codebuild_policy" {
         Action = [
           "s3:GetObject",
           "s3:PutObject",
-          "s3:GetBucketLocation"
+          "s3:GetBucketLocation",
+          "s3:ListBucket"
         ]
         Resource = [
           aws_s3_bucket.artifact_bucket.arn,
