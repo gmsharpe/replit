@@ -36,7 +36,7 @@ phases:
           source create_layer/bin/activate
 
           echo "Installing requirements for $LAYER_NAME using 'serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt'"
-          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt --target ./create_layer/lib/python3.12/site-packages
+          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt --platform manylinux2014_x86_64 --only-binary=:all: --target ./create_layer/lib/python3.12/site-packages
           mkdir -p python
           cp -r create_layer/lib python/
 
@@ -44,10 +44,20 @@ phases:
           echo "Uploading lambda layer zip to S3 (S3 bucket: ${aws_s3_bucket.artifact_bucket.id}, S3 key: $${LAYER_NAME}_lambda_layer/lambda_layer.zip)"
           aws s3 cp lambda_layer_$LAYER_NAME.zip s3://${aws_s3_bucket.artifact_bucket.id}/$${LAMBDA_LAYER}_lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
 
-          aws lambda publish-layer-version \
+          echo "Publishing new Lambda Layer version..."
+          LAYER_VERSION_ARN=$(aws lambda publish-layer-version \
             --layer-name $LAYER_NAME \
             --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=$${LAYER_NAME}_lambda_layer/lambda_layer.zip \
-            --compatible-runtimes python3.12
+            --compatible-runtimes python3.12 \
+            --query 'LayerVersionArn' \
+            --output text)
+
+          echo "New layer version published: $LAYER_VERSION_ARN"
+
+          echo "Updating Lambda function to use the latest layer..."
+          aws lambda update-function-configuration \
+            --function-name $LAMBDA_NAME \
+            --layers $LAYER_VERSION_ARN
 
           echo "$CURRENT_HASH" > requirements_hash.txt
           aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/$${LAYER_NAME}/requirements_hash.txt
@@ -60,8 +70,8 @@ artifacts:
   files: []
 
 cache:
- paths:
-   - '/root/.cache/pip/**/*'
+  paths:
+    - '/root/.cache/pip/**/*'
 EOT
 
 
