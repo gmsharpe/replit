@@ -54,13 +54,13 @@ phases:
           cp -r create_layer/lib python/
 
           zip -r lambda_layer.zip python
-          echo "Uploading lambda layer zip to S3 (S3 bucket: s3://$${BUCKET}, S3 key: $${OBJ_KEY})"
-          aws s3 cp lambda_layer.zip s3://$${BUCKET}/$${OBJ_KEY} --region ${data.aws_region.current.name}
+          echo "Uploading lambda layer zip to S3 (S3 bucket: s3://$${BUCKET}, S3 key: $${LYR_OBJ_KEY})"
+          aws s3 cp lambda_layer.zip s3://$${BUCKET}/$${LYR_OBJ_KEY} --region ${data.aws_region.current.name}
 
           echo "Publishing new Lambda Layer version..."
           LAYER_VERSION_ARN=$(aws lambda publish-layer-version \
             --layer-name $${LAYER_NAME} \
-            --content S3Bucket=$${BUCKET},S3Key=$${OBJ_KEY} \
+            --content S3Bucket=$${BUCKET},S3Key=$${LYR_OBJ_KEY} \
             --compatible-runtimes python3.12 \
             --query 'LayerVersionArn' \
             --output text)
