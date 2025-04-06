@@ -45,7 +45,7 @@ phases:
 
           zip -r lambda_layer_$${LAYER_NAME}.zip python
           echo "Uploading lambda layer zip to S3 (S3 bucket: ${aws_s3_bucket.artifact_bucket.id}, S3 key: $${LAYER_NAME}_lambda_layer/lambda_layer.zip)"
-          aws s3 cp lambda_layer_$${LAYER_NAME}.zip s3://${aws_s3_bucket.artifact_bucket.id}/$LAMBDA_LAYER_lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
+          aws s3 cp lambda_layer_$${LAYER_NAME}.zip s3://${aws_s3_bucket.artifact_bucket.id}/$${LAYER_NAME}_lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
 
           echo "Publishing new Lambda Layer version..."
           LAYER_VERSION_ARN=$(aws lambda publish-layer-version \
