@@ -21,8 +21,12 @@ phases:
     commands:
       - |
         echo "Starting Lambda Layer build for environment: $${LAYER_NAME}"
-        CURRENT_HASH=$(sha256sum serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt | cut -d' ' -f1)
-        aws s3 cp s3://${aws_s3_bucket.artifact_bucket.id}/$${LAYER_NAME}_lambda_layer/requirements_hash.txt previous_hash.txt || echo "No previous hash found"
+        BUCKET=${aws_s3_bucket.artifact_bucket.id}
+        REQ_PATH=serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt
+        REQ_OBJ_KEY=$${LAYER_NAME}/requirements_hash.txt
+
+        CURRENT_HASH=$(sha256sum $${REQUIREMENTS_PATH} | cut -d' ' -f1)
+        aws s3 cp s3://$${BUCKET}/$${REQ_OBJ_KEY} previous_hash.txt || echo "No previous hash found"
         PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
 
         echo "Current hash: $CURRENT_HASH"
@@ -30,28 +34,33 @@ phases:
 
         if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
           echo "Requirements changed, building lambda layer for $${LAYER_NAME}."
-          echo "The requirements are: $(cat serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt)"
+          echo "The requirements are: $(cat $${REQ_PATH})"
+
+          LYR_OBJ_KEY=$${LAYER_NAME}/lambda_layer.zip
 
           python3.12 -m venv create_layer
           source create_layer/bin/activate
 
-          echo "Installing requirements for $${LAYER_NAME} using 'serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt'"
-          pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt --platform manylinux2014_x86_64 --only-binary=:all: --target ./create_layer/lib/python3.12/site-packages
+          PKG_DIR=./create_layer/lib/python3.12/site-packages
+
+          echo "Installing requirements for $${LAYER_NAME} using $${REQ_PATH}"
+          pip install -r $${REQ_PATH} --platform manylinux2014_x86_64 --only-binary=:all: --target $${PKG_DIR}
+
           # Remove any folder that starts with 'boto3' or 'botocore' in the target directory
-          find ./create_layer/lib/python3.12/site-packages -maxdepth 1 -type d -name 'boto3*' -exec rm -rf {} +
-          find ./create_layer/lib/python3.12/site-packages -maxdepth 1 -type d -name 'botocore*' -exec rm -rf {} +
+          find $${PKG_DIR} -maxdepth 1 -type d -name 'boto3*' -exec rm -rf {} +
+          find $${PKG_DIR} -maxdepth 1 -type d -name 'botocore*' -exec rm -rf {} +
 
           mkdir -p python
           cp -r create_layer/lib python/
 
-          zip -r lambda_layer_$${LAYER_NAME}.zip python
-          echo "Uploading lambda layer zip to S3 (S3 bucket: ${aws_s3_bucket.artifact_bucket.id}, S3 key: $${LAYER_NAME}_lambda_layer/lambda_layer.zip)"
-          aws s3 cp lambda_layer_$${LAYER_NAME}.zip s3://${aws_s3_bucket.artifact_bucket.id}/$${LAYER_NAME}_lambda_layer/lambda_layer.zip --region ${data.aws_region.current.name}
+          zip -r lambda_layer.zip python
+          echo "Uploading lambda layer zip to S3 (S3 bucket: s3://$${BUCKET}, S3 key: $${OBJ_KEY})"
+          aws s3 cp lambda_layer.zip s3://$${BUCKET}/$${OBJ_KEY} --region ${data.aws_region.current.name}
 
           echo "Publishing new Lambda Layer version..."
           LAYER_VERSION_ARN=$(aws lambda publish-layer-version \
             --layer-name $${LAYER_NAME} \
-            --content S3Bucket=${aws_s3_bucket.artifact_bucket.id},S3Key=$${LAYER_NAME}_lambda_layer/lambda_layer.zip \
+            --content S3Bucket=$${BUCKET},S3Key=$${OBJ_KEY} \
             --compatible-runtimes python3.12 \
             --query 'LayerVersionArn' \
             --output text)
@@ -64,7 +73,7 @@ phases:
             --layers $LAYER_VERSION_ARN
 
           echo "$CURRENT_HASH" > requirements_hash.txt
-          aws s3 cp requirements_hash.txt s3://${aws_s3_bucket.artifact_bucket.id}/$${LAYER_NAME}/requirements_hash.txt
+          aws s3 cp requirements_hash.txt s3://$${BUCKET}/$${REQ_OBJ_KEY}
 
         else
           echo "No changes in requirements for $${LAYER_NAME}, skipping lambda layer build."
