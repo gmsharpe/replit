@@ -2,4 +2,4 @@ langchain>=0.3.19
 langchain-aws>=0.2.14
 langchain-community>=0.3.14
 langchain-core>=0.3.37
-# changed during the again and again as per the requccc rement ssss
+# changed during the again and again as per the requccc  rement ssss

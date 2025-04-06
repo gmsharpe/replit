@@ -37,8 +37,9 @@ phases:
 
           echo "Installing requirements for $${LAYER_NAME} using 'serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt'"
           pip install -r serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt --platform manylinux2014_x86_64 --only-binary=:all: --target ./create_layer/lib/python3.12/site-packages
-          # Remove any folder that starts with 'boto3' in the target directory
+          # Remove any folder that starts with 'boto3' or 'botocore' in the target directory
           find ./create_layer/lib/python3.12/site-packages -maxdepth 1 -type d -name 'boto3*' -exec rm -rf {} +
+          find ./create_layer/lib/python3.12/site-packages -maxdepth 1 -type d -name 'botocore*' -exec rm -rf {} +
 
           mkdir -p python
           cp -r create_layer/lib python/
