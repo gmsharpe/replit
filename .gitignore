@@ -193,3 +193,7 @@ cython_debug/
 **.tfvars
 
 **/node_modules/**
+
+**/.deepeval_telemtry.txt
+**/.deepeval-cache.json
+**.zip
