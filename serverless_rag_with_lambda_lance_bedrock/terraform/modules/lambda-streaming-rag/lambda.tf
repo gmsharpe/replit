@@ -68,9 +68,10 @@ resource "aws_s3_object" "lambda_zip_upload" {
 resource "aws_lambda_function" "document_processor_function" {
   function_name = var.function_name
   role          = aws_iam_role.document_processor_role.arn
-  runtime       = "python3.12"
-  handler       = "index.handler"
-  package_type  = "Zip"
+  #runtime       = "python3.12"
+  #handler       = "index.handler"
+  image_uri     = "${aws_ecr_repository.document_processor.repository_url}:latest"
+  package_type  = "Image"
   timeout       = 900
   memory_size   = 1024
   architectures = ["x86_64"]
@@ -94,7 +95,7 @@ resource "aws_lambda_function" "document_processor_function" {
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
   lifecycle {
-    ignore_changes = [source_code_hash]
+    ignore_changes = [image_uri]
   }
 
   depends_on = [aws_s3_object.lambda_zip_upload]

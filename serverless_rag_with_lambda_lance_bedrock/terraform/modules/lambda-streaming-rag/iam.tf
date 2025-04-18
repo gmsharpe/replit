@@ -175,10 +175,7 @@ resource "aws_iam_policy" "codepipeline_policy" {
         "Effect" : "Allow",
         "Action" : ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
         "Resource" : [
-          aws_codebuild_project.document_processor_build.arn,
-          aws_codebuild_project.lancedb_lambda_layer_build.arn,
-          aws_codebuild_project.langchain_lambda_layer_build.arn,
-          aws_codebuild_project.lambda_function_deploy.arn
+          aws_codebuild_project.lambda_image_build.arn
 
         ]
       },

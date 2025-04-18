@@ -8,241 +8,62 @@ resource "aws_codestarconnections_connection" "github_connection" {
 }
 
 locals {
-
-  build_spec_layer_artifact = <<-EOT
+  build_spec_container_lambda = <<-EOT
 version: 0.2
 
 phases:
-  install:
-    runtime-versions:
-      python: 3.12
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws --version
+      - $(aws ecr get-login --no-include-email --region ${data.aws_region.current.name})
+      - REPOSITORY_URI=${aws_ecr_repository.document_processor.repository_url}
+      - IMAGE_TAG=latest
 
   build:
     commands:
-      - |
-        echo "Starting Lambda Layer build for environment: $${LAYER_NAME}"
-        BUCKET=${aws_s3_bucket.artifact_bucket.id}
-        REQ_PATH=serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/$${LAYER_NAME}_layer_requirements.txt
-        REQ_OBJ_KEY=$${LAYER_NAME}/requirements_hash.txt
-
-        CURRENT_HASH=$(sha256sum $${REQUIREMENTS_PATH} | cut -d' ' -f1)
-        aws s3 cp s3://$${BUCKET}/$${REQ_OBJ_KEY} previous_hash.txt || echo "No previous hash found"
-        PREVIOUS_HASH=$(cat previous_hash.txt || echo "")
-
-        echo "Current hash: $CURRENT_HASH"
-        echo "Previous hash: $PREVIOUS_HASH"
-
-        if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
-          echo "Requirements changed, building lambda layer for $${LAYER_NAME}."
-          echo "The requirements are: $(cat $${REQ_PATH})"
-
-          LYR_OBJ_KEY=$${LAYER_NAME}/lambda_layer.zip
-
-          python3.12 -m venv create_layer
-          source create_layer/bin/activate
-
-          PKG_DIR=./create_layer/lib/python3.12/site-packages
-
-          echo "Installing requirements for $${LAYER_NAME} using $${REQ_PATH}"
-          pip install -r $${REQ_PATH} --platform manylinux2014_x86_64 --only-binary=:all: --target $${PKG_DIR}
-
-          # Remove any folder that starts with 'boto3' or 'botocore' in the target directory
-          find $${PKG_DIR} -maxdepth 1 -type d -name 'boto3*' -exec rm -rf {} +
-          find $${PKG_DIR} -maxdepth 1 -type d -name 'botocore*' -exec rm -rf {} +
-
-          mkdir -p python
-          cp -r create_layer/lib python/
-
-          zip -r lambda_layer.zip python
-          echo "Uploading lambda layer zip to S3 (S3 bucket: s3://$${BUCKET}, S3 key: $${LYR_OBJ_KEY})"
-          aws s3 cp lambda_layer.zip s3://$${BUCKET}/$${LYR_OBJ_KEY} --region ${data.aws_region.current.name}
-
-          echo "Publishing new Lambda Layer version..."
-          LAYER_VERSION_ARN=$(aws lambda publish-layer-version \
-            --layer-name $${LAYER_NAME} \
-            --content S3Bucket=$${BUCKET},S3Key=$${LYR_OBJ_KEY} \
-            --compatible-runtimes python3.12 \
-            --query 'LayerVersionArn' \
-            --output text)
-
-          echo "New layer version published: $LAYER_VERSION_ARN"
-
-          echo "Updating Lambda function to use the latest layer..."
-          aws lambda update-function-configuration \
-            --function-name $LAMBDA_NAME \
-            --layers $LAYER_VERSION_ARN
-
-          echo "$CURRENT_HASH" > requirements_hash.txt
-          aws s3 cp requirements_hash.txt s3://$${BUCKET}/$${REQ_OBJ_KEY}
-
-        else
-          echo "No changes in requirements for $${LAYER_NAME}, skipping lambda layer build."
-        fi
-
-artifacts:
-  files: []
-
-cache:
-  paths:
-    - '/root/.cache/pip/**/*'
-EOT
-
-
-
-  build_spec_lambda_function_artifact = <<-EOT
-version: 0.2
-
-phases:
-  build:
-    commands:
-      - cp serverless_rag_with_lambda_lance_bedrock/rag_lambda/python/index.py ./
-      - zip lambda_function.zip index.py
+      - echo Build started on `date`
+      - echo Building the Docker image...
+      - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
+      - docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:$IMAGE_TAG
 
   post_build:
     commands:
-      - aws s3 cp lambda_function.zip s3://${aws_s3_bucket.artifact_bucket.id}/lambda_function/lambda_function.zip --region ${data.aws_region.current.name}
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - echo Writing image definitions file...
+      - printf '[{"name":"document-processor","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
 
 artifacts:
-  files:
-    - lambda_function.zip
+  files: imagedefinitions.json
 EOT
-
-  deploy_lambda_build_spec = <<-EOT
-version: 0.2
-
-phases:
-  build:
-    commands:
-      - aws lambda update-function-code --function-name ${var.function_name} --s3-bucket ${aws_s3_bucket.artifact_bucket.id} --s3-key ${aws_s3_object.lambda_zip_upload.key}
-EOT
-
 }
 
-resource "aws_codebuild_project" "langchain_lambda_layer_build" {
-  name         = "langchain-lambda-layer-build"
+resource "aws_codebuild_project" "lambda_image_build" {
+  name         = "document-processor-container-build"
   service_role = aws_iam_role.codebuild_role.arn
 
   source {
     type      = "GITHUB"
     location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    buildspec = local.build_spec_layer_artifact
+    buildspec = local.build_spec_container_lambda
   }
 
   artifacts {
-    type     = "S3"
-    location = aws_s3_bucket.artifact_bucket.id
-    name = "langchain_lambda_layer"
-
-  }
-
-  cache {
-    type = "S3"
-    location = "${aws_s3_bucket.artifact_bucket.id}/langchain/lambda_layer_cache"
+    type = "CODEPIPELINE"
   }
 
   environment {
-    compute_type    = "BUILD_GENERAL1_SMALL"
-    image           = "aws/codebuild/standard:5.0"
-    type            = "LINUX_CONTAINER"
-
-    environment_variable {
-      name  = "LAYER_NAME"
-      value = "langchain"
-    }
-  }
-}
-
-resource "aws_codebuild_project" "lancedb_lambda_layer_build" {
-  name         = "lancedb-lambda-layer-build"
-  service_role = aws_iam_role.codebuild_role.arn
-
-  source {
-    type      = "GITHUB"
-    location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    buildspec = local.build_spec_layer_artifact
-  }
-
-  artifacts {
-    type     = "S3"
-    location = aws_s3_bucket.artifact_bucket.id
-    name = "lancedb_lambda_layer"
-  }
-
-  cache {
-    type = "S3"
-    location = "${aws_s3_bucket.artifact_bucket.id}/lancedb/lambda_layer_cache"
-  }
-
-  environment {
-    compute_type    = "BUILD_GENERAL1_SMALL"
-    image           = "aws/codebuild/standard:5.0"
-    type            = "LINUX_CONTAINER"
-
-    environment_variable {
-      name  = "LAYER_NAME"
-      value = "lancedb"
-    }
-  }
-}
-
-resource "aws_codebuild_project" "lambda_function_deploy" {
-  name         = "lambda-function-deploy"
-  service_role = aws_iam_role.codebuild_role.arn
-
-  source {
-    type      = "GITHUB"
-    location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    buildspec = local.deploy_lambda_build_spec
-  }
-
-  artifacts {
-    type     = "NO_ARTIFACTS"
-  }
-
-  environment {
-    compute_type    = "BUILD_GENERAL1_SMALL"
-    image           = "aws/codebuild/standard:5.0"
-    type            = "LINUX_CONTAINER"
-  }
-}
-
-resource "aws_codebuild_project" "document_processor_build" {
-  name         = "document-processor-build"
-  service_role = aws_iam_role.codebuild_role.arn
-
-  source {
-    type      = "GITHUB"
-    location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    buildspec = local.build_spec_lambda_function_artifact
-  }
-
-  artifacts {
-    type     = "S3"
-    location = aws_s3_bucket.artifact_bucket.id
-    name = "lambda_function"
-  }
-
-  environment {
-    compute_type    = "BUILD_GENERAL1_SMALL"
+    compute_type    = "BUILD_GENERAL1_MEDIUM"
     image           = "aws/codebuild/standard:5.0"
     type            = "LINUX_CONTAINER"
     privileged_mode = true
-    environment_variable {
-      name  = "LAMBDA_FUNCTION_NAME"
-      value = var.function_name
-    }
-
-    environment_variable {
-      name  = "S3_BUCKET"
-      value = aws_s3_bucket.artifact_bucket.id
-    }
-
     environment_variable {
       name  = "AWS_REGION"
       value = data.aws_region.current.name
     }
   }
-
 }
 
 resource "aws_cloudwatch_event_rule" "trigger_codebuild" {
@@ -250,10 +71,10 @@ resource "aws_cloudwatch_event_rule" "trigger_codebuild" {
   description = "Trigger CodeBuild when CodePipeline is updated"
 
   event_pattern = jsonencode({
-    source = ["aws.codepipeline"],
+    source      = ["aws.codepipeline"],
     detail-type = ["CodePipeline Pipeline Execution State Change"],
     detail = {
-      state = ["STARTED"]
+      state    = ["STARTED"]
       pipeline = [aws_codepipeline.document_processor_pipeline.name]
     }
   })
@@ -292,84 +113,19 @@ resource "aws_codepipeline" "document_processor_pipeline" {
   }
 
   stage {
-    name = "BuildLangchainLambdaLayer"
+    name = "BuildContainerImage"
     action {
-      name     = "CodeBuild"
-      category = "Build"
-      owner    = "AWS"
-      provider = "CodeBuild"
-      version  = "1"
-      input_artifacts = ["SourceArtifact"]
-      output_artifacts = ["LangchainLambdaLayerBuildArtifact"]
+      name             = "BuildImage"
+      category         = "Build"
+      owner            = "AWS"
+      provider         = "CodeBuild"
+      version          = "1"
+      input_artifacts  = ["SourceArtifact"]
+      output_artifacts = ["ImageArtifact"]
       configuration = {
-        ProjectName = aws_codebuild_project.langchain_lambda_layer_build.name
+        ProjectName = aws_codebuild_project.lambda_image_build.name
       }
     }
   }
 
-  stage {
-    name = "BuildLanceDBLambdaLayer"
-    action {
-      name     = "CodeBuild"
-      category = "Build"
-      owner    = "AWS"
-      provider = "CodeBuild"
-      version  = "1"
-      input_artifacts = ["SourceArtifact"]
-      output_artifacts = ["LanceDBLambdaLayerBuildArtifact"]
-      configuration = {
-        ProjectName = aws_codebuild_project.lancedb_lambda_layer_build.name
-      }
-    }
-  }
-
-  stage {
-    name = "BuildLambdaFunction"
-    action {
-      name     = "CodeBuild"
-      category = "Build"
-      owner    = "AWS"
-      provider = "CodeBuild"
-      version  = "1"
-      input_artifacts = ["SourceArtifact"]
-      output_artifacts = ["LambdaFunctionBuildArtifact"]
-      configuration = {
-        ProjectName = aws_codebuild_project.document_processor_build.name
-      }
-    }
-  }
-
-  stage {
-    name = "DeployLambdaFunction"
-    action {
-      name     = "CodeBuild"
-      category = "Build"
-      owner    = "AWS"
-      provider = "CodeBuild"
-      version  = "1"
-      input_artifacts = ["SourceArtifact"]
-      configuration = {
-        ProjectName = aws_codebuild_project.lambda_function_deploy.name
-      }
-    }
-  }
-
-
-  # stage {
-  #   name = "Deploy"
-  #   action {
-  #     name     = "DeployLambda"
-  #     category = "Deploy"
-  #     owner    = "AWS"
-  #     provider = "Lambda"
-  #     version  = "1"
-  #     input_artifacts = ["BuildArtifact"]
-  #     configuration = {
-  #       FunctionName = var.function_name
-  #       S3Bucket     = aws_s3_bucket.artifact_bucket.id
-  #       S3Key        = "lambda_function.zip"
-  #     }
-  #   }
-  # }
-  #depends_on = [aws_ssm_parameter.github_oauth_token]
 }
