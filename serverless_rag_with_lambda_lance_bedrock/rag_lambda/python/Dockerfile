@@ -1,6 +1,9 @@
 # Use an official Python runtime as the base image
 FROM public.ecr.aws/lambda/python:3.11
 
+# Copy the Lambda Web Adapter
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.8.1 /lambda-adapter /opt/extensions/lambda-adapter
+
 # Set the working directory
 WORKDIR /var/task
 
