@@ -94,7 +94,7 @@ def parse_base64(message):
     return json.loads(base64.b64decode(message).decode('utf-8'))
 
 
-async def handler(event, response_stream, _context):
+async def lambda_handler(event, response_stream, _context):
     print(json.dumps(event))
     body = parse_base64(event['body']) if event.get('isBase64Encoded') else json.loads(event['body'])
     chunks = await run_chain(body['query'], body.get('model'), body.get('streamingFormat'), response_stream)
