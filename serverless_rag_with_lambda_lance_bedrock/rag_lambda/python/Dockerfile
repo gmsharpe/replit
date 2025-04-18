@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY index.py .
 
 RUN ls -al /var/task
+RUN echo "Listing contents of /var/task:" && ls -al /var/task
 
 # Set the entrypoint for the Lambda container
 CMD ["index.handler"]

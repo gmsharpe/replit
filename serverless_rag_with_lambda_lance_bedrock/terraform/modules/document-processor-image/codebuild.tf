@@ -28,7 +28,7 @@ phases:
     commands:
       - echo Build started on `date`
       - cd serverless_rag_with_lambda_lance_bedrock/rag_lambda/python
-      - echo "index.py contents: "
+      - echo "index.py contents"
       - cat index.py
       - echo Building the Docker image...
       - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
@@ -44,7 +44,9 @@ phases:
       - mv imagedefinitions.json $CODEBUILD_SRC_DIR/imagedefinitions.json
 
 artifacts:
-  files: imagedefinitions.json
+  files:
+    - imagedefinitions.json
+
 EOT
 }
 
