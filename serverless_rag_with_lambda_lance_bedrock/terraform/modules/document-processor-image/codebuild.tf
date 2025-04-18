@@ -39,6 +39,7 @@ phases:
       - docker push $REPOSITORY_URI:$IMAGE_TAG
       - echo Writing image definitions file...
       - printf '[{"name":"document-processor","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+      - mv imagedefinitions.json $CODEBUILD_SRC_DIR/imagedefinitions.json
 
 artifacts:
   files: imagedefinitions.json

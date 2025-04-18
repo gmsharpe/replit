@@ -2,6 +2,11 @@ data "aws_region" "current" {}
 
 data "aws_caller_identity" "current" {}
 
+resource "aws_lambda_function_url" "this" {
+  function_name = aws_lambda_function.document_processor_function.function_name
+  authorization_type = "AWS_IAM"
+  invoke_mode = "RESPONSE_STREAM"
+}
 
 resource "aws_lambda_function" "document_processor_function" {
   function_name = var.function_name
