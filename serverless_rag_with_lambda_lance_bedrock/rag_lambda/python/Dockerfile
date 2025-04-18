@@ -14,4 +14,4 @@ COPY index.py .
 RUN ls -al /var/task
 
 # Set the entrypoint for the Lambda container
-CMD ["index.lambda_handler"]
+CMD ["index.handler"]
