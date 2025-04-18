@@ -11,5 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application code
 COPY index.py .
 
+RUN ls -al /var/task
+
 # Set the entrypoint for the Lambda container
 CMD ["index.lambda_handler"]

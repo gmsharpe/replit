@@ -28,6 +28,8 @@ phases:
     commands:
       - echo Build started on `date`
       - cd serverless_rag_with_lambda_lance_bedrock/rag_lambda/python
+      - echo "index.py contents: "
+      - cat index.py
       - echo Building the Docker image...
       - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
       - docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:$IMAGE_TAG
