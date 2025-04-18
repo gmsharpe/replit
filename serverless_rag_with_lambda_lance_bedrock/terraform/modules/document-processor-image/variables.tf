@@ -9,4 +9,3 @@ variable "document_table_name" {}
 variable "document_processor_build_name" {
   default = "streaming-rag-document-processor"
 }
-variable "document_processor_repository_url" {}

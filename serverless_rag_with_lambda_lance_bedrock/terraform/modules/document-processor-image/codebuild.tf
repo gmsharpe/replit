@@ -7,6 +7,10 @@ resource "aws_codestarconnections_connection" "github_connection" {
   provider_type = "GitHub"
 }
 
+resource "aws_ecr_repository" "document_processor" {
+  name = "${var.stack_name}-document-processor"
+}
+
 locals {
   build_spec_container_lambda = <<-EOT
 version: 0.2
@@ -16,13 +20,14 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - aws --version
-      - $(aws ecr get-login --no-include-email --region ${data.aws_region.current.name})
       - REPOSITORY_URI=${aws_ecr_repository.document_processor.repository_url}
       - IMAGE_TAG=latest
+      - aws ecr get-login-password --region ${data.aws_region.current.name} | docker login --username AWS --password-stdin $REPOSITORY_URI
 
   build:
     commands:
       - echo Build started on `date`
+      - cd serverless_rag_with_lambda_lance_bedrock/rag_lambda/python
       - echo Building the Docker image...
       - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
       - docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:$IMAGE_TAG
@@ -45,8 +50,7 @@ resource "aws_codebuild_project" "lambda_image_build" {
   service_role = aws_iam_role.codebuild_role.arn
 
   source {
-    type      = "GITHUB"
-    location  = "https://github.com/${var.github_owner}/${var.github_repo}.git"
+    type      = "CODEPIPELINE"
     buildspec = local.build_spec_container_lambda
   }
 
@@ -82,7 +86,7 @@ resource "aws_cloudwatch_event_rule" "trigger_codebuild" {
 
 resource "aws_cloudwatch_event_target" "codebuild_target" {
   rule     = aws_cloudwatch_event_rule.trigger_codebuild.name
-  arn      = aws_codebuild_project.document_processor_build.arn
+  arn      = aws_codebuild_project.lambda_image_build.arn
   role_arn = aws_iam_role.eventbridge_role.arn
 }
 
