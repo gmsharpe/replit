@@ -21,6 +21,5 @@
     "linux",
     "win32"
   ],
-  "type": "module",
-
+  "type": "module"
 }
