@@ -21,6 +21,7 @@
     "@smithy/protocol-http": "^3.0.8",
     "@smithy/signature-v4": "^2.0.12",
     "@smithy/util-utf8": "^2.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "langchain": "^0.3.19",
     "vectordb": "^0.1.19"
   },
