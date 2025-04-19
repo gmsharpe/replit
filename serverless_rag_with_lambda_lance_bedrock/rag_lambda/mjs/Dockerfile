@@ -5,7 +5,7 @@ FROM public.ecr.aws/lambda/nodejs:18
 WORKDIR /var/task
 
 # Copy package.json and package-lock.json for dependency installation
-COPY package.json package-lock.json ./
+COPY package.json ./
 
 # Install dependencies
 RUN npm install --production
