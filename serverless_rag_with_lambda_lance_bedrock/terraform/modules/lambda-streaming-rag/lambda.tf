@@ -22,6 +22,7 @@ resource "aws_lambda_function" "document_processor_function" {
       s3BucketName = aws_s3_bucket.document_bucket.id
       region       = data.aws_region.current.name
       lanceDbTable = var.document_table_name
+      AWS_LWA_INVOKE_MODE = "RESPONSE_STREAM"
     }
   }
 
