@@ -11,6 +11,8 @@ resource "aws_ecr_repository" "document_processor" {
   name = "${var.stack_name}-document-processor"
 }
 
+
+
 locals {
   build_spec_container_lambda = <<-EOT
 version: 0.2
@@ -27,9 +29,9 @@ phases:
   build:
     commands:
       - echo Build started on `date`
-      - cd serverless_rag_with_lambda_lance_bedrock/rag_lambda/python
-      - echo "index.py contents"
-      - cat index.py
+      - cd ${var.function_location_dir}
+      - echo "Contents of the main file:"
+      - cat ${var.function_location_dir}/${var.function_file_name}
       - echo Building the Docker image...
       - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
       - docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:$IMAGE_TAG
@@ -40,7 +42,7 @@ phases:
       - echo Pushing the Docker image...
       - docker push $REPOSITORY_URI:$IMAGE_TAG
       - echo Updating Lambda function with new image...
-      - aws lambda update-function-code --function-name streaming-rag-on-lambda --image-uri $REPOSITORY_URI:$IMAGE_TAG --region ${data.aws_region.current.name}
+      - aws lambda update-function-code --function-name ${var.function_name} --image-uri $REPOSITORY_URI:$IMAGE_TAG --region ${data.aws_region.current.name}
       - echo Writing image definitions file...
       - printf '[{"name":"document-processor","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
       - mv imagedefinitions.json $CODEBUILD_SRC_DIR/imagedefinitions.json
