@@ -30,8 +30,8 @@ phases:
     commands:
       - echo Build started on `date`
       - cd ${var.function_location_dir}
-      - echo "Contents of the main file:"
-      - cat ${var.function_location_dir}/${var.function_file_name}
+      - echo "Contents of the function file"
+      - cat ${var.function_file_name}
       - echo Building the Docker image...
       - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
       - docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:$IMAGE_TAG
