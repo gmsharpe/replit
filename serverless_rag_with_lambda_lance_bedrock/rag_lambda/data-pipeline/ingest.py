@@ -4,20 +4,16 @@
 import os
 
 import boto3
-from langchain.text_splitter import CharacterTextSplitter
-#from langchain.vectorstores import LanceDB
+from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.vectorstores import LanceDB
 import lancedb as ldb
-
-from langchain_aws.embeddings import BedrockEmbeddings
-
-from langchain_community.document_loaders import PyPDFDirectoryLoader
-
+from langchain_aws import BedrockEmbeddings
+from langchain_community.document_loaders.pdf import PyPDFDirectoryLoader
 
 
 import pyarrow as pa
+embeddings = BedrockEmbeddings(model_id="amazon.titan-embed-text-v2:0", region_name="us-west-2")
 
-embeddings = BedrockEmbeddings()
 
 # we split the data into chunks of 1,000 characters, with an overlap
 # of 200 characters between the chunks, which helps to give better results
@@ -41,6 +37,10 @@ loader = PyPDFDirectoryLoader("./docs/")
 
 docs = loader.load()
 docs = text_splitter.split_documents(docs)
+
+
+# Update LanceDB storage configuration
+LanceDB.from_documents(docs, embeddings, uri='tmp/embeddings/doc_table/', table_name="doc_table")
 
 s3_bucket_name = "streaming-rag-on-lambda-documents-us-west-2-736682772784"
 LanceDB.from_documents(docs, embeddings, uri='s3://' + s3_bucket_name + '/doc_table/', table_name="doc_table")

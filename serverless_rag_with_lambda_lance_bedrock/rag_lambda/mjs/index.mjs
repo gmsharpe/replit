@@ -1,21 +1,39 @@
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: MIT-0
-import { LanceDB } from "langchain/vectorstores/lancedb";
-import { BedrockEmbeddings } from "langchain/embeddings/bedrock";
+import { LanceDB } from '@langchain/community/vectorstores/lancedb';
+import { BedrockEmbeddings } from '@langchain/aws';
 import { connect } from "vectordb"; // LanceDB
-import { PromptTemplate } from "langchain/prompts";
-import { ChatBedrock } from "langchain/chat_models/bedrock";
-import { StringOutputParser } from "langchain/schema/output_parser";
-import { RunnableSequence, RunnablePassthrough } from "langchain/schema/runnable";
+import { PromptTemplate } from '@langchain/core/prompts';
+import { BedrockChat } from '@langchain/community/chat_models/bedrock';
+import { StringOutputParser } from '@langchain/core/output_parsers';
+import { RunnableSequence, RunnablePassthrough } from '@langchain/core/runnables';
 import { formatDocumentsAsString } from "langchain/util/document";
 
 const lanceDbSrc = process.env.s3BucketName;
 const lanceDbTable = process.env.lanceDbTable;
 const awsRegion = process.env.region;
 
+process.env.AWS_REGION = 'us-west-2';
+
+if (typeof awslambda === 'undefined') {
+    global.awslambda = {
+        streamifyResponse: (handler) => handler,
+        HttpResponseStream: {
+            from: (stream, metadata) => stream,
+        },
+    };
+}
 
 const runChain = async ({query, model, streamingFormat}, responseStream) => {
-    const db = await connect(`s3://${lanceDbSrc}/`);
+
+    const lanceDbSrc = process.env.s3BucketName;
+    const lanceDbTable = process.env.lanceDbTable;
+    const awsRegion = process.env.region;
+
+    const tableName = `${lanceDbTable}`;
+
+    const db = await connect(`s3://${lanceDbSrc}/${lanceDbTable}/`);
+
+    const tables = await db.tableNames();
+    console.log("Available tables in db:", tables); 
     const table = await db.openTable(lanceDbTable);
     console.log('query', query);
     console.log('model', model);
@@ -32,7 +50,7 @@ const runChain = async ({query, model, streamingFormat}, responseStream) => {
         Question: {question}`
     );
 
-    const llmModel = new ChatBedrock({
+    const llmModel = new BedrockChat({
         model: model || 'anthropic.claude-instant-v1',
         region: awsRegion,
         streaming: true,
@@ -67,14 +85,25 @@ const runChain = async ({query, model, streamingFormat}, responseStream) => {
   };
 
 function parseBase64(message) {
+    if (!message) {
+        throw new Error("Invalid input: message is undefined or null");
+    }
     return JSON.parse(Buffer.from(message, "base64").toString("utf-8"));
 }
 
 export const handler = awslambda.streamifyResponse(async (event, responseStream, _context) => {
-    console.log(JSON.stringify(event));
-    let body = event.isBase64Encoded ? parseBase64(event.body) : JSON.parse(event.body);
-    await runChain(body, responseStream);
-    console.log(JSON.stringify({"status": "complete"}));
+    try {
+        if (!event || !event.body) {
+            throw new Error("Invalid event: body is undefined or null");
+        }
+        const body = event.isBase64Encoded ? parseBase64(event.body) : JSON.parse(event.body);
+        await runChain(body, responseStream);
+        console.log(JSON.stringify({"status": "complete"}));
+    } catch (error) {
+        console.error("Error in handler:", error);
+        responseStream.write(JSON.stringify({ error: error.message }));
+        responseStream.end();
+    }
 });
 
 /*

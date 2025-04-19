@@ -1,17 +1,32 @@
 {
-  "name": "streaming-rag-lambda",
+  "name": "rag-lambda-mjs",
   "version": "1.0.0",
+  "description": "Serverless RAG Lambda with LanceDB and Bedrock",
+  "main": "index.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs",
+    "test": "mocha \"test_*.mjs\""
+  },
   "dependencies": {
     "@aws-crypto/sha256-js": "^5.2.0",
     "@aws-sdk/client-bedrock-runtime": "^3.515.0",
     "@aws-sdk/credential-provider-node": "^3.515.0",
     "@aws-sdk/types": "^3.515.0",
+    "@lancedb/lancedb": "^0.12.0",
+    "@langchain/aws": "^0.1.8",
+    "@langchain/community": "^0.3.41",
+    "@langchain/core": "^0.3.45",
     "@smithy/eventstream-codec": "^2.0.12",
     "@smithy/protocol-http": "^3.0.8",
     "@smithy/signature-v4": "^2.0.12",
     "@smithy/util-utf8": "^2.0.0",
     "langchain": "^0.3.19",
     "vectordb": "^0.1.19"
+  },
+  "devDependencies": {
+    "chai": "^4.3.7",
+    "mocha": "^10.0.0"
   },
   "optionalDependencies": {
     "@lancedb/vectordb-linux-x64-gnu": "^0.3.5",
@@ -20,6 +35,5 @@
   "os": [
     "linux",
     "win32"
-  ],
-  "type": "module"
+  ]
 }
