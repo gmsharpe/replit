@@ -22,11 +22,13 @@
     "@smithy/signature-v4": "^2.0.12",
     "@smithy/util-utf8": "^2.0.0",
     "@types/pdf-parse": "^1.1.5",
+    "apache-arrow": "^19.0.1",
     "langchain": "^0.3.19",
     "vectordb": "^0.1.19"
   },
   "devDependencies": {
     "chai": "^4.3.7",
+    "dotenv": "^16.5.0",
     "mocha": "^10.0.0"
   },
   "optionalDependencies": {
