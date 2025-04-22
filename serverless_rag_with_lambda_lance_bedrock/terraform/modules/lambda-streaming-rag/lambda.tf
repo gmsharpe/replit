@@ -23,6 +23,7 @@ resource "aws_lambda_function" "document_processor_function" {
       region       = data.aws_region.current.name
       lanceDbTable = var.document_table_name
       AWS_LWA_INVOKE_MODE = "RESPONSE_STREAM"
+      uploadEmbeddings = "false"
     }
   }
 
