@@ -10,15 +10,9 @@ import { formatDocumentsAsString } from "langchain/util/document";
 import { Document } from "@langchain/core/documents";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { Schema, Field, Float32, FixedSizeList, Utf8, Struct } from 'apache-arrow';
 import fs from 'fs';
 import path from 'path';
 
-const lanceDbSrc = process.env.s3BucketName;
-const lanceDbTable = process.env.lanceDbTable;
-const awsRegion = process.env.region;
-const useS3 = process.env.useS3 === 'true';
-const uploadEmbeddings = process.env.uploadEmbeddings === 'true';
 
 if (typeof awslambda === 'undefined') {
     global.awslambda = {
@@ -96,37 +90,7 @@ const runChain = async ({ query, model, streamingFormat }, responseStream, awsRe
             region: awsRegion,
             model: 'amazon.titan-embed-text-v1',
         });
-        // type LanceDBArgs = {
-        //     table?: Table;
-        //     textKey?: string;
-        //     uri?: string;
-        //     tableName?: string;
-        //     mode?: "create" | "overwrite";
-        // }
 
-        const data = await Promise.all(
-            simplifiedDocs.map(async (doc, index) => {
-              const vector = await embeddings.embedQuery(doc.pageContent);
-          
-            //   const text = String(doc.pageContent ?? "").trim();
-
-            //   const sanitizeText = (input) => {
-            //     return text.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ').trim();
-            //   };
-
-            //   if (!sanitizeText) {
-            //     console.warn(`⚠️ Skipping empty document at index ${index}`);
-            //     return null;
-            //   }
-
-              return {
-                vector: vector,
-                text: String(doc.pageContent ?? ""),    // ensure it's a string
-                id: index,                     // force string
-                metadata: {}                           // keep this simple for now
-              };
-            })
-          );
 
         // https://js.langchain.com/docs/integrations/vectorstores/lancedb/
 
@@ -136,40 +100,15 @@ const runChain = async ({ query, model, streamingFormat }, responseStream, awsRe
             uri: dbUri,
             tableName: lanceDbTable,
             mode: 'overwrite',
-          });
-        
-          console.log(`✅ Embeddings stored at ${dbUri}`);
-        
-          // Validate
-          const testDocs = await vectorStore.asRetriever().getRelevantDocuments('hello world');
-          console.log(`🔍 Retrieval test returned ${testDocs.length} document(s)`);
+        });
 
-        // const table = await db.createTable(lanceDbTable, data, { 
-        //     mode: "overwrite",
-        //     storageOptions : 
-        //     { 
-        //         aws_region: awsRegion
-        //     } 
-        // });
+        console.log(`✅ Embeddings stored at ${dbUri}`);
 
-        //console.log(`Number of rows in table: ${await table.countRows()}`);
+        // Validate
+        const testDocs = await vectorStore.asRetriever().getRelevantDocuments('hello world');
+        console.log(`🔍 Retrieval test returned ${testDocs.length} document(s)`);
 
-        //const table = await db.createTable(lanceDbTable, simplifiedDocs);
-        // vectorStore = await LanceDB.fromDocuments(simplifiedDocs, embeddings, {
-        //     tableName: lanceDbTable,
-        //     uri: dbUri,
-        //     mode: "overwrite",
-        //   }
-        // );
-        //table.vectorStore
-        // vectorStore = new LanceDB(embeddings, {
-        //     table,
-        //     //     private table?;
-        //     uri: dbUri,
-        //     tableName: lanceDbTable,
-        //     textKey: "text",     // column that contains document text
-        //     vectorKey: "vector", // column that contains embedding vector
-        //   });
+
 
         console.log('Embeddings uploaded successfully');
     } else {
@@ -180,8 +119,8 @@ const runChain = async ({ query, model, streamingFormat }, responseStream, awsRe
 
     const retriever = vectorStore.asRetriever();
 
-    const test = await vectorStore.asRetriever().getRelevantDocuments("hello");
-    console.log("Retriever returned:", test.length);
+    // const test = await vectorStore.asRetriever().getRelevantDocuments("hello");
+    // console.log("Retriever returned:", test.length);
 
     const prompt = PromptTemplate.fromTemplate(
         `Answer the following question based only on the following context:
