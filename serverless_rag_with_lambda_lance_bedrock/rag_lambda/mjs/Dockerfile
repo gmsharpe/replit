@@ -1,5 +1,9 @@
 # Use an official Node.js runtime as the base image
-FROM public.ecr.aws/lambda/nodejs:18
+#FROM public.ecr.aws/lambda/nodejs:18
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023
+
+# Install Node.js (if not already bundled)
+RUN yum install -y nodejs npm git
 
 RUN yum install -y glibc
 
