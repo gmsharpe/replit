@@ -1,3 +1,4 @@
+import 'module-alias/register';
 import { LanceDB } from '@langchain/community/vectorstores/lancedb';
 import { BedrockEmbeddings } from '@langchain/aws';
 import { connect } from "@lancedb/lancedb"; // LanceDB

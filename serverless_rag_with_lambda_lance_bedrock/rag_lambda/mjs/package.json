@@ -37,5 +37,8 @@
   "os": [
     "linux",
     "win32"
-  ]
+  ],
+  "_moduleAliases": {
+  "@lancedb/lancedb": "@lancedb/lancedb-linux-x64-musl"
+}
 }
