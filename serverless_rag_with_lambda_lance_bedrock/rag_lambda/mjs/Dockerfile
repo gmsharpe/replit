@@ -1,6 +1,8 @@
 # Use an official Node.js runtime as the base image
 FROM public.ecr.aws/lambda/nodejs:18
 
+RUN yum install -y glibc
+
 # Set the working directory
 WORKDIR /var/task
 

@@ -11,7 +11,7 @@ from botocore.session import get_session
 # ---------- CONFIGURABLE VALUES ----------
 # Set the Lambda function URL from python args
 
-FUNCTION_URL = ""
+FUNCTION_URL = "https://kzxdvs3apwfd6nle5ab2qqbpoa0eogia.lambda-url.us-west-2.on.aws/"
 REGION = "us-west-2"
 QUERY = "What models are available in Amazon Bedrock?"
 MODEL = "anthropic.claude-instant-v1"
